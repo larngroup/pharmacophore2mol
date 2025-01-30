@@ -1,6 +1,6 @@
-#This folder contains the downloaders for the datasets used in the project. Each downloader places the outputs in the data folder, but each has its own requirements.
+# This folder contains the downloaders for the datasets used in the project. Each downloader places the outputs in the data folder, but each has its own requirements.
 
-##ZINC 3D
+## ZINC 3D
 They are downloaded via the ZINC tranche browser 3D. Downloader is called via:
 ```sh
 python zinc3d.py <uri_file> [<output_file>]
