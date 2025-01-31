@@ -8,7 +8,7 @@ from xxhash import xxh64
 from pathlib import Path
 
 class PharmacophoreVoxelDataModule(pl.LightningDataModule):
-    def __init__(self, data_file, data_dir="./data", batch_size=32, num_workers=4):
+    def __init__(self, data_file, data_dir="./data", batch_size=32, num_workers=4, caching=False):
         # super.__init__()
         self.data_dir = Path(data_dir)
         self.cache_dir = self.data_dir / "cache"
@@ -18,12 +18,13 @@ class PharmacophoreVoxelDataModule(pl.LightningDataModule):
             raise FileNotFoundError(f"File not found: {data_file}")
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.caching = caching
         pass
 
     def prepare_data(self):
         #check if cached
         cache_filename, cache_file_exists = _get_dataset_cache(self.data_file, self.cache_dir) #no state assignment here!!! (no self.x = y)
-        if not cache_file_exists:
+        if not cache_file_exists or self.caching == False:
             with open(self.cache_dir / cache_filename, "wb") as f:
                 #save the processed dataset
                 f.write(f"Hello World at {datetime.now()}".encode())
@@ -80,5 +81,5 @@ def _get_dataset_hash(data_file: Path):
 
 if __name__ == "__main__":
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
-    data = PharmacophoreVoxelDataModule("zinc3d_test.sdf")
+    data = PharmacophoreVoxelDataModule("zinc3d_test.sdf", caching=False)
     print(data.prepare_data())
