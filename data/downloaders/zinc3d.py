@@ -53,19 +53,23 @@ if __name__ == "__main__":
     tempfiles = [f"{tempdir}/{args.output_file}_{i}.sdf.gz" for i in range(len(uris))]
     for uri, tempfile in tqdm(zip(uris, tempfiles), desc="Downloading", total=len(uris)):
         response = requests.get(uri)
-        response.raise_for_status()
+        if response.status_code != 200:
+            print(f"Error downloading {uri}. Status code: {response.status_code}")
+            continue
         with open(tempfile, "wb") as f:
             f.write(response.content)
 
 
     # Extract the .gz files and append them to the output file
-    with open(args.output_file, "wb") as f_out:
+    with open(tempdir + "/out.sdf", "wb") as f_out:
         count = 0
         for tempfile in tqdm(tempfiles, desc="Extracting"):
             with gzip.open(tempfile, "rb") as f_in:
                 content = f_in.read()
                 count += content.count(b"$$$$")
                 f_out.write(content)
+
+    shutil.move(tempdir + "/out.sdf", args.output_file) # just to make things atomic
     shutil.rmtree(tempdir)
     print(f"Downloaded {count} molecules.")
 
