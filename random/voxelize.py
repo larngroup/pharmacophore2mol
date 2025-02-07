@@ -31,6 +31,9 @@ def voxelize(mol: Chem.Mol) -> np.ndarray:
     grid = np.zeros(grid_size, dtype=np.float32)
 
     #create a distance matrix for each atom to each voxel center (going full pairwise here, if too slow swith to a KDTree with nearest neighbours)
+    
+    [1, 5, 3, 2 , 8, 9]
+    (3, 10, 10, 10, L) -> (3, 10, 10, 10)
     distance_matrix = np.zeros((*grid_size, len(coords)), dtype=np.float32)
     for i, coord in enumerate(coords):
         for x in range(grid_size[0]):
