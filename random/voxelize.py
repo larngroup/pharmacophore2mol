@@ -2,7 +2,26 @@ import numpy as np #TODO: switch to torch or cupy
 from rdkit import Chem
 import os
 
-def voxelize(mol: Chem.Mol) -> np.ndarray:
+
+def _calculate_voxels(channel_grid, coords, mode="binary"):
+    """Calculate the voxels for a channel."""
+    func_map = {
+        "binary": _binary
+    }
+    try:
+        func = func_map[mode]
+    except KeyError:
+        raise ValueError(f"Invalid mode: {mode}. Available modes: {list(func_map.keys())}")
+    
+    
+    return channel_grid
+
+
+def _binary(x, y, z, coords):
+    return 1
+
+
+def voxelize(mol: Chem.Mol, mode="binary") -> np.ndarray:
     """Voxelize a molecule."""
     CHANNELS = { #keeping this as a dict instead of a list for hashtable lookup
         "C": 0,
@@ -15,39 +34,40 @@ def voxelize(mol: Chem.Mol) -> np.ndarray:
         "Cl": 7,
         "Br": 8,
         "I": 9,
+        "Si": 10,
     }
     # Get the coordinates
     conformer = mol.GetConformer()
     coords = conformer.GetPositions()
     # Get the atomic numbers
-    atom_types = [atom.GetSymbol() for atom in mol.GetAtoms()]
+    feature_types = [feature.GetSymbol() for feature in mol.GetAtoms()]
     # Get the min and max coordinates
     min_coords = np.min(coords, axis=0)
     max_coords = np.max(coords, axis=0)
     # Calculate the grid size
     grid_size = np.ceil(max_coords - min_coords).astype(int) + 1
-    print(grid_size)
+    # print(grid_size)
     # Create the grid
-    grid = np.zeros(grid_size, dtype=np.float32)
+    grid = np.zeros((len(CHANNELS), *grid_size), dtype=np.float32)
 
-    #create a distance matrix for each atom to each voxel center (going full pairwise here, if too slow swith to a KDTree with nearest neighbours)
-    
-    [1, 5, 3, 2 , 8, 9]
-    (3, 10, 10, 10, L) -> (3, 10, 10, 10)
-    distance_matrix = np.zeros((*grid_size, len(coords)), dtype=np.float32)
-    for i, coord in enumerate(coords):
-        for x in range(grid_size[0]):
-            for y in range(grid_size[1]):
-                for z in range(grid_size[2]):
-                    distance_matrix[x, y, z, i] = np.linalg.norm(coord - np.array([x, y, z]) - min_coords)
+    # def binary(mask, coords):
+        
+
+
+    # grid = np.apply_along_axis(binary, -1, distance_grid, coords=coords)
+    # print(grid.shape)
+    # print(grid[0, 0, 0, 0])
 
     # Fill the grid
     for channel in CHANNELS:
-        #get the relevant distance matrices
-        channel_indices = [i for i, atom in enumerate(atom_types) if atom == channel]
-        channel_distance_matrix = distance_matrix[channel_indices]
-        print(channel_distance_matrix.shape)
-        print(channel_distance_matrix.T)
+        mask = np.array([feature == channel for feature in feature_types])
+        channel_coords = coords[mask]
+        if len(channel_coords) == 0:
+            continue
+        
+        grid[CHANNELS[channel]] = _calculate_voxels(grid[CHANNELS[channel]], channel_coords, mode="binary")
+        
+        
     return grid
 
 
