@@ -6,7 +6,8 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 def _calculate_voxels(channel_grid, coords, mode="binary"):
     """Calculate the voxels for a channel."""
     func_map = {
-        "binary": _binary
+        "binary": _binary,
+        "ivd": _inverse_squared_distance
     }
     try:
         func = func_map[mode]
@@ -29,6 +30,14 @@ def _binary(shape, coords):
     # print(indexes)
     #set the indexes to 1 and leave the rest as zeros
     grid[indexes[:, 0], indexes[:, 1], indexes[:, 2]] = 1 #how does this even work with negative indexes?
+    return grid
+
+def _inverse_squared_distance(shape, coords):
+    grid = np.zeros(shape, dtype=np.float32)
+    for i in range(shape[0]): #not very effcient, but it works
+        for j in range(shape[1]):
+            for k in range(shape[2]):
+                grid[i, j, k] = np.sum(1 / np.linalg.norm(coords - np.array([i, j, k]), axis=1) ** 2)
     return grid
 
 
@@ -66,13 +75,6 @@ def voxelize(mol: Chem.Mol, mode="binary") -> np.ndarray:
     # Create the grid
     grid = np.zeros((len(CHANNELS), *grid_size), dtype=np.float32)
 
-    # def binary(mask, coords):
-        
-
-
-    # grid = np.apply_along_axis(binary, -1, distance_grid, coords=coords)
-    # print(grid.shape)
-    # print(grid[0, 0, 0, 0])
 
     # Fill the grid
     for channel in CHANNELS:
@@ -81,7 +83,7 @@ def voxelize(mol: Chem.Mol, mode="binary") -> np.ndarray:
         if len(channel_coords) == 0:
             continue
         
-        grid[CHANNELS[channel]] = _calculate_voxels(grid[CHANNELS[channel]], channel_coords, mode="binary")
+        grid[CHANNELS[channel]] = _calculate_voxels(grid[CHANNELS[channel]], channel_coords, mode=mode)
         
         
     return grid
@@ -96,8 +98,9 @@ if __name__ == "__main__":
     datafile = "../data/zinc3d_test.sdf"
     suppl = Chem.SDMolSupplier(datafile, removeHs=False)
     mol = suppl[0]
-    voxels = voxelize(mol)
+    voxels = voxelize(mol, mode="ivd")
     print(voxels.shape)
+    print(voxels[0])
 
 
     #plotting
