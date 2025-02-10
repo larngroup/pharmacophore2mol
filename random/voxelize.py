@@ -1,7 +1,7 @@
 import numpy as np #TODO: switch to torch or cupy
 from rdkit import Chem
 import os
-
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 def _calculate_voxels(channel_grid, coords, mode="binary"):
     """Calculate the voxels for a channel."""
@@ -13,12 +13,23 @@ def _calculate_voxels(channel_grid, coords, mode="binary"):
     except KeyError:
         raise ValueError(f"Invalid mode: {mode}. Available modes: {list(func_map.keys())}")
     
+    shape = channel_grid.shape
+    channel_grid = func(shape, coords)
+
+    # print(channel_grid)
+    
     
     return channel_grid
 
 
-def _binary(x, y, z, coords):
-    return 1
+def _binary(shape, coords):
+    grid = np.zeros(shape, dtype=np.float32)
+    #get the indexes for each of the points
+    indexes = np.floor(coords).astype(int)
+    # print(indexes)
+    #set the indexes to 1 and leave the rest as zeros
+    grid[indexes[:, 0], indexes[:, 1], indexes[:, 2]] = 1 #how does this even work with negative indexes?
+    return grid
 
 
 def voxelize(mol: Chem.Mol, mode="binary") -> np.ndarray:
@@ -39,6 +50,11 @@ def voxelize(mol: Chem.Mol, mode="binary") -> np.ndarray:
     # Get the coordinates
     conformer = mol.GetConformer()
     coords = conformer.GetPositions()
+    #translation to the origin step
+    coords -= np.min(coords, axis=0)
+
+    #DO NOT USE THE MOL OBJECT ANYMORE, IT HAS NOT BEEN UPDATED
+
     # Get the atomic numbers
     feature_types = [feature.GetSymbol() for feature in mol.GetAtoms()]
     # Get the min and max coordinates
@@ -82,5 +98,69 @@ if __name__ == "__main__":
     mol = suppl[0]
     voxels = voxelize(mol)
     print(voxels.shape)
-    # plt.imshow(voxels.sum(axis=0))
-    # plt.show()
+
+
+    #plotting
+
+    channel = 1 #carbon
+    voxel_grid = voxels[channel]
+    print(voxel_grid.shape)
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111, projection="3d")
+
+    ###### Plotting atoms and bonds ######
+    atom_colors = {
+        "C": "green",  # Carbon
+        "O": "red",    # Oxygen
+        "H": "gray",  # Hydrogen
+        "N": "blue",   # Nitrogen
+        "S": "yellow", # Sulfur
+    }
+
+    conf = mol.GetConformer()
+    atom_positions = np.array([conf.GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
+
+    # Center molecule in the voxel grid
+    min_bounds = atom_positions.min(axis=0)
+    atom_positions -= min_bounds  # Shift so min coordinate starts at (0,0,0)
+
+    #Plot atoms
+    for i, pos in enumerate(atom_positions):
+        atom_symbol = mol.GetAtomWithIdx(i).GetSymbol()  # Get element type (C, O, H, etc.)
+        color = atom_colors.get(atom_symbol, "white")  # Default to gray if unknown
+        ax.scatter(pos[0], pos[1], pos[2], c=color, s=100, label=atom_symbol if i == 0 else "")
+
+    #Plot bonds
+    bonds = []
+    for bond in mol.GetBonds():
+        start = atom_positions[bond.GetBeginAtomIdx()]
+        end = atom_positions[bond.GetEndAtomIdx()]
+        bonds.append([start, end])
+
+    bond_collection = Line3DCollection(bonds, colors="black", linewidths=2)
+    ax.add_collection3d(bond_collection)
+
+    #get the size of the grid
+    ax.set_xlim(0, voxel_grid.shape[0])
+    ax.set_ylim(0, voxel_grid.shape[1])
+    ax.set_zlim(0, voxel_grid.shape[2])
+    ax.set_box_aspect([1, 1, 1])
+    
+    ax.voxels(voxel_grid, edgecolor="k", alpha=0.5)
+
+
+    def set_axes_equal(ax):
+        """Make the axes of a 3D plot have equal scale so voxels appear cubic."""
+        extents = np.array([ax.get_xlim(), ax.get_ylim(), ax.get_zlim()])
+        sizes = extents[:, 1] - extents[:, 0]
+        max_size = max(sizes)
+        centers = np.mean(extents, axis=1)
+        
+        ax.set_xlim(centers[0] - max_size / 2, centers[0] + max_size / 2)
+        ax.set_ylim(centers[1] - max_size / 2, centers[1] + max_size / 2)
+        ax.set_zlim(centers[2] - max_size / 2, centers[2] + max_size / 2)
+
+    set_axes_equal(ax)  # Apply the fix
+
+
+    plt.show()
