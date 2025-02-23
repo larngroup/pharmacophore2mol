@@ -78,6 +78,7 @@ def voxelize(mol: Chem.Mol, mode="binary", resolution = 0.5) -> np.ndarray:
     # Get the coordinates
     conformer = mol.GetConformer()
     coords = conformer.GetPositions()
+    print(coords)
     #translation to the origin step
     coords -= np.min(coords, axis=0) #TODO: add offset to center min atom on the grid or let it be?
 
