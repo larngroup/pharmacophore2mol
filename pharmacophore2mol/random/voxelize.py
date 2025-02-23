@@ -50,12 +50,13 @@ def _inverse_squared_distance(shape, coords, l=1):
 def _gaussian(shape, coords, l=1):
     offset_to_center = l/2
     coords = coords / l
-    std = 3
+    std = 1
+    scaled_std = std / l
     grid = np.zeros(shape, dtype=np.float32)
     for x in range(shape[0]):
         for y in range(shape[1]):
             for z in range(shape[2]):
-                grid[x, y, z] = np.max([np.exp(-np.linalg.norm(coords - np.array([x + offset_to_center, y + offset_to_center, z + offset_to_center]), axis=1) ** 2 / (2 * std ** 2))])
+                grid[x, y, z] = np.max([np.exp(-np.linalg.norm(coords - np.array([x + offset_to_center, y + offset_to_center, z + offset_to_center]), axis=1) ** 2 / (2 * scaled_std ** 2))])
     return grid
 
 
@@ -264,6 +265,6 @@ $$$$'''
     suppl.SetData(sdf, removeHs=False)
     mol = suppl[0]
     voxel_grid = voxelize(mol, mode="gaussian", resolution=0.22)
-    plt.matshow(voxel_grid[0,4,:,:])
+    plt.matshow(voxel_grid[0,22,:,:])
     plt.show()
 
