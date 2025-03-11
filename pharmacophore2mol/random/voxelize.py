@@ -21,7 +21,7 @@ def _calculate_voxels(channel_grid, coords, mode="binary", resolution=0.5):
     # print(channel_grid)
     
     
-    return channel_grid
+    return channel_grid 
 
 
 def _binary(shape, coords, l=1):

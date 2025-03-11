@@ -1,6 +1,7 @@
 from collections import defaultdict
 import os
 from pathlib import Path
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import RDConfig
@@ -47,14 +48,17 @@ class Pharmacophore:
     
     def to_list(self):
         return [(f.GetFamily(), (f.GetPos().x, f.GetPos().y, f.GetPos().z)) for f in self.features]
-    
-    from collections import defaultdict
 
-    def to_dict(self):
+    def to_dict(self, np_format=True):
         feature_dict = defaultdict(list)
         for f in self.features:
-            feature_dict[f.GetFamily()].append((f.GetPos().x, f.GetPos().y, f.GetPos().z))
+            feature_dict[f.GetFamily()].append([f.GetPos().x, f.GetPos().y, f.GetPos().z])
+        if np_format:
+            for key in feature_dict:
+                feature_dict[key] = np.array(feature_dict[key])
         return dict(feature_dict)
+    
+        
 
     
     
