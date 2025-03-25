@@ -47,7 +47,7 @@ class Voxelizer:
         #check if translation should be forced
         if not allow_negative_coords:
             all_coords = [point for channel in points for point in points[channel]]
-            print(all_coords)
+            # print(all_coords)
             if min([min(point) for point in all_coords]) < 0:
                 raise ValueError("Negative coordinates found. If you want to forcefully allow negative coordinates, set allow_negative_coords=True.")
 
@@ -57,9 +57,15 @@ class Voxelizer:
         
         #calculate the minimum grid size and initialize
         if min_grid_size is None:
-            min_grid_size = [max([max([point[i] for point in points[channel]]) for channel in points]) for i in range(3)]
+            min_grid_size = np.array([max([max([point[i] for point in points[channel]]) for channel in points]) for i in range(3)])
+        elif not isinstance(min_grid_size, np.ndarray):
+            min_grid_size = np.array(min_grid_size)
+        
+        if min_grid_size.shape != (3,):
+            raise ValueError(f"min_grid_size should be a 3d tuple or list, but got {min_grid_size.shape}")
 
-        grid_shape = tuple([int(np.ceil(size / self.resolution)) for size in min_grid_size])
+        grid_shape = np.floor(min_grid_size / self.resolution).astype(int) + 1
+        # print(grid_shape)
         grid = np.zeros((len(self.channels), *grid_shape), dtype=np.float32)
         
         #actually fill the grid
@@ -82,7 +88,7 @@ class Voxelizer:
 
         if isinstance(coords, list):
             try: #try to convert to np array
-                np.array(coords)
+                coords = np.array(coords)
             except Exception as e:
                 raise ValueError(f"Could not convert coords to a 2d numpy array. Please make sure the format it was passed in is convertible, like a list of lists, list of tuples, etc")
 
@@ -93,25 +99,24 @@ class Voxelizer:
             raise ValueError(f"Invalid mode: {self.mode}. Available modes: {list(func_map.keys())}. If you just added a new mode, please don't forget to name it and add it to the Voxelizer._calculate_voxels method")
         
         shape = channel_grid.shape
-        channel_grid = func(shape, coords, l=self.resolution)
+        channel_grid = func(shape, coords)
         return channel_grid
     
-    @staticmethod
-    def _binary(shape, coords, l=1):
+    def _binary(self, shape, coords: np.ndarray):
         grid = np.zeros(shape, dtype=np.float32)
         #get the indexes for each of the points
         #if l=1, then indexes are just floor of the coords. if not, scaling seems a good idea
-        coords = coords / l #TODO: check if this is correct
+        coords = coords / self.resolution #TODO: check if this is correct
         indexes = np.floor(coords).astype(int)
         # print(indexes)
         #set the indexes to 1 and leave the rest as zeros
         grid[indexes[:, 0], indexes[:, 1], indexes[:, 2]] = 1 #how does this even work with negative indexes?
         return grid
 
-    @staticmethod
-    def _inverse_squared_distance(shape, coords, l=1):
-        offset_to_center = l/2
-        coords = coords / l
+    def _inverse_squared_distance(self, shape, coords: np.ndarray):
+        raise DeprecationWarning("_inverse_square_distance: This method was abandoned and may contain bugs.")
+        offset_to_center = self.resolution/2
+        coords = coords / self.resolution
         grid = np.zeros(shape, dtype=np.float32)
         for i in range(shape[0]): #not very effcient, but it works
             for j in range(shape[1]):
@@ -120,22 +125,60 @@ class Voxelizer:
                     grid[i, j, k] = np.sum(1 / np.linalg.norm(coords - np.array([i + offset_to_center, j + offset_to_center, k + offset_to_center]), axis=1) ** 2)
         return grid
 
-    @staticmethod
-    def _gaussian(shape, coords, l=1):
-        offset_to_center = l/2
-        coords = coords / l
+    def _gaussian(self, shape, coords: np.ndarray):
+        offset_to_center = self.resolution/2
+        coords = coords / self.resolution
         std = 1
-        scaled_std = std / l
+        scaled_std = std / self.resolution
         grid = np.zeros(shape, dtype=np.float32)
         for x in range(shape[0]):
             for y in range(shape[1]):
                 for z in range(shape[2]):
                     grid[x, y, z] = np.max([np.exp(-np.linalg.norm(coords - np.array([x + offset_to_center, y + offset_to_center, z + offset_to_center]), axis=1) ** 2 / (2 * scaled_std ** 2))])
         return grid
+    
+
+
+
+    def fragment(grid, side, stride=None, filter_empty=True, point_cloud=None):
+        """
+        Fragment a voxel grid into smaller grids, cubic, fixed size, possibly overlapping grids.
+        It fragments the grid into smaller grids of size side x side x side, with a stride of stride.
+        (Therefore, if stride < side, the grids will overlap, as it is intentional sometimes)
+        If stride is None, it will default to side.
+        """
+
+        assert not (point_cloud is None and filter_empty), "If no point cloud is passed, filter_empty should be False, as no filtering can be performed"
+        assert grid.ndim == 4, "Grid should be a 4d array (channels, x, y, z)"
+        assert side > 0, "Side should be a positive integer"
+        assert (stride > 0 or stride is None), "Stride should be a positive integer"
+        assert grid.shape[1] >= side, "Grid side should be smaller than the grid size"
+        assert grid.shape[2] >= side, "Grid side should be smaller than the grid size"
+        assert grid.shape[3] >= side, "Grid side should be smaller than the grid size"
+
+        if stride is None:
+            stride = side
+
+        fragments = []
+        for i in range(0, grid.shape[1] - side + 1, stride):
+            for j in range(0, grid.shape[2] - side + 1, stride):
+                for k in range(0, grid.shape[3] - side + 1, stride):
+                    fragment = grid[:, i:i+side, j:j+side, k:k+side]
+                    if filter_empty and np.sum(fragment) == 0:
+                        continue
+                    fragments.append(fragment)
+
+
+
+
+
 
 
 if __name__ == "__main__":
-    v = Voxelizer(channels=["C", "H", "N"], resolution=0.75)
-    print(v)
-    print(v.get_channels())
-    print(v.voxelize({"C": [(0, 0, 0), (1, 1, 1)], "H": [(0.5, 0.5, 0.5)]}))#, (1, 1, 1)))
+    v = Voxelizer(channels=["C", "H", "N"], resolution=0.05, mode="gaussian")
+    grid = v.voxelize({"C": [(0, 0, 0), (1, 1, 1)], "H": [(0.5, 0.5, 0.5)]}, (1, 1, 1))
+    
+    import matplotlib.pyplot as plt
+    plt.imshow(grid[0, 0, :, :])
+    plt.show()
+    
