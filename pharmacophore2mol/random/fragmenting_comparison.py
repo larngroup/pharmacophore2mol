@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from math import ceil
 
 def extract_subgrids_with_numpy(voxel_grid, important_voxels, side, stride, return_subgrids=False):
     """
@@ -37,6 +38,7 @@ def extract_subgrids_with_numpy(voxel_grid, important_voxels, side, stride, retu
                     # Store the lowest corner (x, y, z) of the subgrid
                     results.append((x, y, z))
     
+    results = np.array(results)
     return results
 
 
@@ -47,27 +49,22 @@ def extract_subgrids_with_point_cloud_expansion(voxel_grid, important_voxels, si
     Then, removes the duplicates and returns the list of lowest corners.
     """
     grid_size_x, grid_size_y, grid_size_z = voxel_grid.shape
-
-    results = []
-
-    # Iterate over the important voxels
-    for i, j, k in important_voxels:
-        pass
     
     
     results = []
 
     # Iterate over the important voxels
     for i, j, k in important_voxels:
-        min_x = max(0, i - side + 1)
-        min_y = max(0, j - side + 1)
-        min_z = max(0, k - side + 1)
+        min_x = ceil(max(0, i - side + 1) / stride) * stride # USE THE CEIL FROM MATH!! for non array operations, math module is 10x faster than numpy
+        min_y = ceil(max(0, j - side + 1) / stride) * stride
+        min_z = ceil(max(0, k - side + 1) / stride) * stride
+        
 
-        max_x = min(grid_size_x - side + 1, i + 1) #MAX IS EXCLUSIVE!!!
-        max_y = min(grid_size_y - side + 1, j + 1)
-        max_z = min(grid_size_z - side + 1, k + 1)
+        max_x = ceil(min(grid_size_x - side + 1, i + 1) / stride) * stride #MAX IS EXCLUSIVE!!!
+        max_y = ceil(min(grid_size_y - side + 1, j + 1) / stride) * stride
+        max_z = ceil(min(grid_size_z - side + 1, k + 1) / stride) * stride
 
-        lowest_corners = expand_ranges((min_x, max_x), (min_y, max_y), (min_z, max_z))
+        lowest_corners = expand_ranges((min_x, max_x), (min_y, max_y), (min_z, max_z), step=stride)
         results.append(lowest_corners)
 
     results = np.vstack(results)
@@ -79,7 +76,7 @@ def extract_subgrids_with_point_cloud_expansion(voxel_grid, important_voxels, si
 
 
 
-def expand_ranges(x, y, z):
+def expand_ranges(x, y, z, step=1):
     """
     Expand the ranges of the 3D space into a list of coordinates.
     x, y and z are tuples like (min, max) (min included, max excluded).
@@ -103,9 +100,9 @@ def expand_ranges(x, y, z):
     y_min, y_max = y
     z_min, z_max = z
     # Define the ranges for each axis
-    x_range = np.arange(x_min, x_max)
-    y_range = np.arange(y_min, y_max)
-    z_range = np.arange(z_min, z_max)
+    x_range = np.arange(x_min, x_max, step)
+    y_range = np.arange(y_min, y_max, step)
+    z_range = np.arange(z_min, z_max, step)
 
     # Create meshgrid for the 3D space
     x, y, z = np.meshgrid(x_range, y_range, z_range)
@@ -152,29 +149,28 @@ important_voxels = np.array([
 # ])
 
 side = 2
-stride = 1
+stride = 2
+nr_subgrids = int(np.ceil((voxel_grid.shape[0] - side + 1) / stride) * np.ceil((voxel_grid.shape[1] - side + 1) / stride) * np.ceil((voxel_grid.shape[2] - side + 1) / stride))
 # Fragment the grid with side=2, stride=1
 start_time = time.time()
-lowest_corners = extract_subgrids_with_numpy(voxel_grid, important_voxels, side=side, stride=stride, return_subgrids=False)
+lowest_corners1 = extract_subgrids_with_numpy(voxel_grid, important_voxels, side=side, stride=stride, return_subgrids=False)
 end_time = time.time()
 
 print("Execution time:", end_time - start_time, "seconds")
-print("Nr of possible subgrids:", voxel_grid.shape[0] * voxel_grid.shape[1] * voxel_grid.shape[2])
-print("Nr of filtered subgrids:", len(lowest_corners))
+print("Nr of possible subgrids:", nr_subgrids)
+print("Nr of filtered subgrids:", len(lowest_corners1))
 # print(lowest_corners)
 
 start_time = time.time()
-lowest_corners = extract_subgrids_with_point_cloud_expansion(voxel_grid, important_voxels, side=side, stride=stride, return_subgrids=False)
+lowest_corners2 = extract_subgrids_with_point_cloud_expansion(voxel_grid, important_voxels, side=side, stride=stride, return_subgrids=False)
 end_time = time.time()
 
 print("Execution time:", end_time - start_time, "seconds")
-print("Nr of possible subgrids:", voxel_grid.shape[0] * voxel_grid.shape[1] * voxel_grid.shape[2])
-print("Nr of filtered subgrids:", len(lowest_corners))
-# print(lowest_corners)
+print("Nr of possible subgrids:", nr_subgrids)
+print("Nr of filtered subgrids:", len(lowest_corners2))
 
-# print("Nr of possible subgrids:", voxel_grid.shape[0] * voxel_grid.shape[1] * voxel_grid.shape[2])
-# print("Nr of filtered subgrids:", len(lowest_corners))
-# print(lowest_corners)
+for item1, item2 in zip(lowest_corners1, lowest_corners2):
+    print(item1, "|", item2)
 
 
 # coords1 = expand_ranges((0, 50), (0, 30), (0, 20))
