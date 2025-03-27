@@ -329,7 +329,7 @@ if __name__ == "__main__":
     v = Voxelizer(channels=["C", "H", "N"], resolution=0.05, mode="gaussian")
     grid = v.voxelize({"C": [(0, 0, 0), (1, 1, 1)], "H": [(0.5, 0.5, 0.5)]}, (1, 1, 1))
     
-    # import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
     # plt.imshow(grid[0, 0, :, :])
     # plt.show()
 
@@ -338,4 +338,7 @@ if __name__ == "__main__":
     roi_indices = v.get_indexes(np.array([(0.5, 0.5, 0.5)]))
     fragments = fragment_voxel_grid(grid, side, stride, roi_indices)
     print(fragments.shape)
+
+    plt.imshow(fragments[4, 1, 0, :, :])
+    plt.show()
     
