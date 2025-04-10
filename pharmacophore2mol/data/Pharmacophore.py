@@ -5,6 +5,7 @@ import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import RDConfig
+from rdkit.Chem.Features import FeatDirUtilsRD as FeatDirUtils
 
 PHARMACOPHORE_CHANNELS = [ #COPIED FROM IMRIE: keep = ('Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe')
     'Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe'
@@ -35,10 +36,62 @@ class Pharmacophore:
     
 
     def _extract_pharmacophore_features(self):
+        #centers
         feature_factory = AllChem.BuildFeatureFactory(str(Path(RDConfig.RDDataDir) / "BaseFeatures.fdef"))
         features = feature_factory.GetFeaturesForMol(self.mol)
-        print(feature_factory.GetFeatureFamilies())
+
+        #directions (copied from rdkit.Chem.Features)
+        for feat in features:
+            if feat.GetFamily() in ['Donor', 'Acceptor', 'Aromatic']:
+                pos = feat.GetPos()
+                family = feat.GetFamily()
+                dirs = self._get_feature_direction_vector(feat, pos, family)
+                print(f"Feature: {feat.GetFamily()}, Position: {pos}, Direction Vectors: {dirs}")
+
         return features
+    
+
+    def _get_feature_direction_vector(self, feat, pos, family):
+        # (copied from rdkit.Chem.Features.ShowFeats ShowFeats function)
+        # This function is used to add directional features to the pharmacophore.
+        ps = []
+        dirs = []
+        if family == 'Aromatic':
+            ps, _ = FeatDirUtils.GetAromaticFeatVects(self.mol.GetConformer(), feat.GetAtomIds(), pos,
+                                                    scale=1.0)
+
+        elif family == 'Donor':
+            aids = feat.GetAtomIds()
+            if len(aids) == 1:
+                FeatVectsDictMethod = {
+                    1: FeatDirUtils.GetDonor1FeatVects,
+                    2: FeatDirUtils.GetDonor2FeatVects,
+                    3: FeatDirUtils.GetDonor3FeatVects,
+                }
+                featAtom = self.mol.GetAtomWithIdx(aids[0])
+                numHvyNbrs = len([1 for x in featAtom.GetNeighbors() if x.GetAtomicNum() > 1])
+                ps, _ = FeatVectsDictMethod[numHvyNbrs](self.mol.GetConformer(), aids, scale=1.0)
+
+        elif family == 'Acceptor':
+            aids = feat.GetAtomIds()
+            if len(aids) == 1:
+                FeatVectsDictMethod = {
+                    1: FeatDirUtils.GetDonor1FeatVects,
+                    2: FeatDirUtils.GetDonor2FeatVects,
+                    3: FeatDirUtils.GetDonor3FeatVects,
+                }
+                featAtom = self.mol.GetAtomWithIdx(aids[0])
+                numHvyNbrs = len([x for x in featAtom.GetNeighbors() if x.GetAtomicNum() > 1])
+                ps, _ = FeatVectsDictMethod[numHvyNbrs](self.mol.GetConformer(), aids, scale=1.0)
+
+        else:
+            raise ValueError(f"Unsupported feature family: {family}")
+        for tail, head in ps:
+            vect = head - tail
+            dirs.append(vect / np.linalg.norm(vect)) #i think it is already normalized in the original code, but wtv TODO: check this
+
+        return dirs
+
     
     def __repr__(self):
         return f"Pharmacophore({self.mol}, {len(self.features)} features)"
@@ -57,8 +110,6 @@ class Pharmacophore:
             for key in feature_dict:
                 feature_dict[key] = np.array(feature_dict[key])
         return dict(feature_dict)
-    
-        
 
     
     
