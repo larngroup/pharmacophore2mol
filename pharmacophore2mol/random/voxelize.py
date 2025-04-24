@@ -3,12 +3,13 @@ from rdkit import Chem
 import os
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-def _calculate_voxels(channel_grid, coords, mode="binary", resolution=0.5):
+def _calculate_voxels(channel_grid, coords, mode="binary", resolution=0.5, **kwargs):
     """Calculate the voxels for a channel."""
     func_map = {
         "binary": _binary,
         "ivd": _inverse_squared_distance,
-        "gaussian": _gaussian
+        "gaussian": _gaussian,
+        "gaussian_vect": _gaussian2,
     }
     try:
         func = func_map[mode]
@@ -16,7 +17,7 @@ def _calculate_voxels(channel_grid, coords, mode="binary", resolution=0.5):
         raise ValueError(f"Invalid mode: {mode}. Available modes: {list(func_map.keys())}")
     
     shape = channel_grid.shape
-    channel_grid = func(shape, coords, l=resolution)
+    channel_grid = func(shape, coords, l=resolution, **kwargs)
 
     # print(channel_grid)
     
@@ -47,20 +48,44 @@ def _inverse_squared_distance(shape, coords, l=1):
     return grid
 
 
-def _gaussian(shape, coords, l=1):
+def _gaussian(shape, coords, l=1, std=1):
+    raise DeprecationWarning("This function is deprecated. Use _gaussian2 instead.")
     offset_to_center = l/2
     coords = coords / l
-    std = 1
     scaled_std = std / l
     grid = np.zeros(shape, dtype=np.float32)
+    # print("gauss1:", grid.shape)
     for x in range(shape[0]):
         for y in range(shape[1]):
             for z in range(shape[2]):
                 grid[x, y, z] = np.max([np.exp(-np.linalg.norm(coords - np.array([x + offset_to_center, y + offset_to_center, z + offset_to_center]), axis=1) ** 2 / (2 * scaled_std ** 2))])
     return grid
 
+def _gaussian2(shape, coords, l=1, std=1, pooling="max"):
+    offset_to_center = l/2
+    coords = coords / l
+    scaled_std = std / l
+    x_axis = np.arange(shape[0]) + offset_to_center
+    y_axis = np.arange(shape[1]) + offset_to_center
+    z_axis = np.arange(shape[2]) + offset_to_center
+    x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
 
-def voxelize(mol: Chem.Mol, mode="binary", resolution = 0.5) -> np.ndarray:
+    #stack to form a grid of coordinates
+    grid_coords = np.stack([x, y, z], axis=-1).reshape(-1, 3) #shape (nr_of_coordinates, 3)
+
+    grid_gauss = np.exp(-((np.linalg.norm(grid_coords[:, None] - coords, axis=2) ** 2) / (2 * scaled_std ** 2)))
+    if pooling == "max":
+        grid_gauss = np.max(grid_gauss, axis=1).reshape(shape) #shape (shape[0], shape[1], shape[2])
+    elif pooling == "avg":
+        grid_gauss = np.sum(np.square(grid_gauss), axis=1).reshape(shape) #sum of the squares is the same as the weighted average of the values
+    elif pooling == "sum":
+        grid_gauss = np.sum(grid_gauss, axis=1).reshape(shape)
+    else:
+        raise ValueError(f"Invalid pooling mode: {pooling}. Available modes: ['max', 'avg', 'sum']")
+    return grid_gauss
+
+
+def voxelize(mol: Chem.Mol, mode="binary", resolution = 0.5, **kwargs) -> np.ndarray:
     """Voxelize a molecule."""
     CHANNELS = { #keeping this as a dict instead of a list for hashtable lookup
         "C": 0,
@@ -78,7 +103,7 @@ def voxelize(mol: Chem.Mol, mode="binary", resolution = 0.5) -> np.ndarray:
     # Get the coordinates
     conformer = mol.GetConformer()
     coords = conformer.GetPositions()
-    print(coords)
+    # print(coords)
     #translation to the origin step
     coords -= np.min(coords, axis=0) #TODO: add offset to center min atom on the grid or let it be?
 
@@ -103,7 +128,7 @@ def voxelize(mol: Chem.Mol, mode="binary", resolution = 0.5) -> np.ndarray:
         if len(channel_coords) == 0:
             continue
         
-        grid[CHANNELS[channel]] = _calculate_voxels(grid[CHANNELS[channel]], channel_coords, mode=mode, resolution=resolution)
+        grid[CHANNELS[channel]] = _calculate_voxels(grid[CHANNELS[channel]], channel_coords, mode=mode, resolution=resolution, **kwargs)
         
         
     return grid
@@ -185,7 +210,6 @@ if __name__ == "__main__1":
 
     #plotting
     # _plot_voxel_grid_and_mol(voxels, mol, 0)
-    
 
 
 if __name__ == "__main__":
@@ -264,8 +288,43 @@ $$$$'''
 
     suppl = Chem.SDMolSupplier()
     suppl.SetData(sdf, removeHs=False)
+    print(len(suppl))
     mol = suppl[0]
-    voxel_grid = voxelize(mol, mode="gaussian", resolution=0.22)
+    
+    voxel_grid = voxelize(mol, mode="gaussian_vect", resolution=0.20, pooling="max")
+    # voxel_grid2 = voxelize(mol, mode="gaussian_vect", resolution=0.20, pooling="avg")
+    # voxel_grid3 = voxelize(mol, mode="gaussian_vect", resolution=0.20, pooling="sum")
+    # diff = np.abs(voxel_grid - voxel_grid2)
+    # print(diff.sum())
+
+    slice1 = voxel_grid[0,22,:,:]
+    # slice2 = voxel_grid2[0,22,:,:]
+    # slice3 = voxel_grid3[0,22,:,:]
+    # fig, ax = plt.subplots()
+    # img = ax.imshow(slice1, cmap="viridis")
+    # img2 = ax[1].imshow(slice2, cmap="viridis")
+
+    # def update(frame):
+    #     pos = frame % 3
+    #     title = "pooling: "
+    #     match pos:
+    #         case 0:
+    #             data = slice1
+    #             title += "max"
+    #         case 1:
+    #             data = slice2
+    #             title += "avg"
+    #         case 2:
+    #             data = slice3
+    #             title += "sum"
+    #     img.set_array(data)
+    #     ax.set_title(title)
+    #     return [img]
+    
+    # import matplotlib.animation as animation
+
+    # ani = animation.FuncAnimation(fig, update, frames= 12, interval=1000, blit=True)
     plt.matshow(voxel_grid[0,22,:,:])
+    # ani.save("test.gif", writer='pillow', fps=1)
     plt.show()
 

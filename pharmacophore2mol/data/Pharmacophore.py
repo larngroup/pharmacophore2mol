@@ -11,42 +11,45 @@ PHARMACOPHORE_CHANNELS = [ #COPIED FROM IMRIE: keep = ('Donor', 'Acceptor', 'Neg
     'Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe'
 ]
 
+PHARMACOPHORE_FACTORY = AllChem.BuildFeatureFactory(str(Path(RDConfig.RDDataDir) / "BaseFeatures.fdef"))
+
 class Pharmacophore:
-    def __init__(self, mol: Chem.Mol):
+    def __init__(self, mol: Chem.Mol, ignore_directions=False):
         self.mol = mol
         self.channels = {k: v for v, k in enumerate(PHARMACOPHORE_CHANNELS)}
-        self.features = self._extract_pharmacophore_features()
+        self.features = self._extract_pharmacophore_features(ignore_directions=ignore_directions)
 
     
     @classmethod
-    def from_mol(cls, mol: Chem.Mol):
-        return cls(mol)
+    def from_mol(cls, mol: Chem.Mol, **kwargs):
+        return cls(mol, **kwargs)
     
     @classmethod
-    def from_sdf_string(cls, sdf_string: str):
+    def from_sdf_string(cls, sdf_string: str, **kwargs):
         mol = Chem.MolFromMolBlock(sdf_string)
-        return cls(mol)
+        return cls(mol, **kwargs)
     
     @classmethod
-    def from_mol_block(cls, mol_block: str):
+    def from_mol_block(cls, mol_block: str, **kwargs):
         mol = Chem.MolFromMolBlock(mol_block)
-        return cls(mol)
+        return cls(mol, **kwargs)
     
 
     
 
-    def _extract_pharmacophore_features(self):
+    def _extract_pharmacophore_features(self, ignore_directions=False):
         #centers
-        feature_factory = AllChem.BuildFeatureFactory(str(Path(RDConfig.RDDataDir) / "BaseFeatures.fdef"))
+        # feature_factory = AllChem.BuildFeatureFactory(str(Path(RDConfig.RDDataDir) / "BaseFeatures.fdef"))
+        feature_factory = PHARMACOPHORE_FACTORY #faster than the one above by about 5 ms (we need everything for fast indexing)
         features = feature_factory.GetFeaturesForMol(self.mol)
 
         #directions (copied from rdkit.Chem.Features)
         for feat in features:
-            if feat.GetFamily() in ['Donor', 'Acceptor', 'Aromatic']:
+            if not ignore_directions and feat.GetFamily() in ['Donor', 'Acceptor', 'Aromatic']:
                 pos = feat.GetPos()
                 family = feat.GetFamily()
                 dirs = self._get_feature_direction_vector(feat, pos, family)
-                print(f"Feature: {feat.GetFamily()}, Position: {pos}, Direction Vectors: {dirs}")
+                # print(f"Feature: {feat.GetFamily()}, Position: {pos}, Direction Vectors: {dirs}")
 
         return features
     
@@ -101,6 +104,9 @@ class Pharmacophore:
     
     def to_list(self):
         return [(f.GetFamily(), (f.GetPos().x, f.GetPos().y, f.GetPos().z)) for f in self.features]
+    
+    def get_coordinates(self):
+        return np.array([f.GetPos() for f in self.features])
 
     def to_dict(self, np_format=True):
         feature_dict = defaultdict(list)
@@ -117,11 +123,13 @@ class Pharmacophore:
 if __name__ == "__main__":
     # Load a molecule
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
-    # suppl = Chem.SDMolSupplier("./raw/zinc3d_test.sdf", removeHs=False, sanitize=False, strictParsing=False)
-    # mol = suppl[0]
+    suppl = Chem.SDMolSupplier("./raw/zinc3d_test.sdf", removeHs=False, sanitize=False, strictParsing=False)
+    mol = suppl[0]
     # # Extract pharmacophore features
     # print("\nExtracting Pharmacophore Features...")
-    # pharmacophore = Pharmacophore.from_mol(mol)
+    pharmacophore = Pharmacophore.from_mol(mol)
+    mol2 = suppl[1]
+    pharmacophore = Pharmacophore.from_mol(mol2)
     sdf_str = '''lig.pdb
 
 
@@ -194,7 +202,7 @@ M  END
 
 $$$$'''
     
-    pharmacophore = Pharmacophore.from_sdf_string(sdf_str)
+    # pharmacophore = Pharmacophore.from_sdf_string(sdf_str)
     print(pharmacophore.to_dict())
     # print(pharmacophore.to_dict())
     # print(pharmacophore.features)
