@@ -6,6 +6,7 @@ import torch
 from pharmacophore2mol.data.voxelizer import Voxelizer, get_frag_count, fragment_voxel_grid
 from pharmacophore2mol.data.pharmacophore import Pharmacophore
 from pharmacophore2mol.data.utils import get_translation_vector, translate_mol, mol_to_atom_dict
+from config import config
 
 class SubGridsDataset(Dataset):
     def __init__(self, mols_filename):
@@ -25,36 +26,27 @@ class SubGridsDataset(Dataset):
         translation = get_translation_vector(mol.GetConformer().GetPositions())
         mol = translate_mol(mol, translation)
         pharmacophore = Pharmacophore.from_mol(mol, ignore_directions=True)
-        mol_v = Voxelizer(channels=[], resolution=0.20, mode="dry_run")
+        mol_v = Voxelizer(channels=[], resolution=config["resolution"], mode="dry_run")
         atom_dict = mol_to_atom_dict(mol)
         dummy_grid = mol_v.voxelize(atom_dict)
-        side = mol_v.distance_to_voxel(0.3)
-        stride = mol_v.distance_to_voxel(0.1)
+        side = mol_v.distance_to_voxel(config["side"])
+        stride = mol_v.distance_to_voxel(config["stride"])
         roi_indices = mol_v.get_indexes(pharmacophore.get_coordinates())
         frag_count = get_frag_count(dummy_grid.shape[1:], roi_indices, side, stride)
         return frag_count
 
 
     def __len__(self):
-        return self.n_mols
+        return self.n_samples
     
     def __getitem__(self, idx):
         mol_idx = self.index[idx]
-        mol = self.mol_supplier[idx]
+        try:
+            mol = self.mol_supplier[mol_idx]
+        except IndexError:
+            raise IndexError(f"Index {idx} out of range for molecule supplier.")
         if mol is None:
             raise ValueError(f"Invalid molecule at index {idx} in {self.mols_filename}.")
-        tensor = torch.randn(6, 32, 32, 32)
-        return tensor
-        # img_path = os.path.join(self.image_dir, self.image_filenames[idx])
-        # mask_path = os.path.join(self.mask_dir, self.image_filenames[idx].replace('.jpg', '_mask.gif'))
-        # image = np.array(Image.open(img_path).convert('RGB'))
-        # mask = np.array(Image.open(mask_path).convert('L'), dtype=np.float32)
-        # mask[mask == 255.0] = 1.0  # Normalize to 1, there are only 2 values (0 and 255)
-
-
-        # if self.transform:
-        #     augmentations = self.transform(image=image, mask=mask)
-        #     image = augmentations['image']
-        #     mask = augmentations['mask']
-        
-        # return image, mask
+        tensor_x = torch.randn(6, 32, 32, 32)
+        tensor_y = torch.randn(3, 32, 32, 32)
+        return tensor_x, tensor_y
