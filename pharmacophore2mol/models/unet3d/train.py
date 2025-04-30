@@ -14,19 +14,13 @@ if __name__ == "__main__":
     # Define the dataset and dataloader
     dataset = SubGridsDataset(mols_filename="../../data/raw/zinc3d_test.sdf")
     dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
-    print(len(dataset))
-
-    loop = tqdm(dataloader, leave=True)
-    loop.set_postfix({"loss": 0.0})
 
     model = UNet3d(in_channels=6, out_channels=3, features=[32, 64, 128, 256]).to(config["device"])
     for epoch in range(config["epochs"]):
-        print(f"Epoch {epoch + 1}/{config['epochs']}")
-        loop.set_description(f"Epoch {epoch + 1}/{config['epochs']}")
-        loop.refresh()
         
         # Training loop
-        for batch_idx, (data, targets) in enumerate(loop):
+        loop = tqdm(enumerate(dataloader), total=len(dataloader), leave=False)
+        for batch_idx, (data, targets) in loop:
             data = data.to(config["device"])
             targets = targets.to(config["device"])
             optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"])
@@ -37,8 +31,10 @@ if __name__ == "__main__":
                 loss = torch.nn.functional.mse_loss(predictions, targets)
             loss.backward()
             optimizer.step()
-            loop.set_postfix({"loss": loss.item()})
-            loop.update(1)
+
+            # Update the progress bar
+            loop.set_description(f"Epoch {epoch + 1}/{config['epochs']}")
+            loop.set_postfix(loss=loss.item())    
     loop.close()
     print("Training complete.")
 

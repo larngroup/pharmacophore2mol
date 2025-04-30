@@ -4,14 +4,14 @@ import numpy as np
 from rdkit import Chem
 import torch
 from pharmacophore2mol.data.voxelizer import Voxelizer, get_frag_count, fragment_voxel_grid
-from pharmacophore2mol.data.pharmacophore import Pharmacophore
+from pharmacophore2mol.data.pharmacophore import Pharmacophore, PHARMACOPHORE_CHANNELS
 from pharmacophore2mol.data.utils import get_translation_vector, translate_mol, mol_to_atom_dict
 from config import config
 
 class SubGridsDataset(Dataset):
     def __init__(self, mols_filename):
         self.mols_filename = mols_filename
-        self.mol_supplier = Chem.SDMolSupplier(mols_filename, removeHs=False, sanitize=False, strictParsing=False)
+        self.mol_supplier = Chem.SDMolSupplier(mols_filename, removeHs=False, sanitize=True, strictParsing=False)
         self.n_mols = len(self.mol_supplier)
         self.n_samples = 0
         self.index = []
@@ -26,6 +26,7 @@ class SubGridsDataset(Dataset):
         translation = get_translation_vector(mol.GetConformer().GetPositions())
         mol = translate_mol(mol, translation)
         pharmacophore = Pharmacophore.from_mol(mol, ignore_directions=True)
+        print(pharmacophore.to_dict())
         mol_v = Voxelizer(channels=[], resolution=config["resolution"], mode="dry_run")
         atom_dict = mol_to_atom_dict(mol)
         dummy_grid = mol_v.voxelize(atom_dict)
@@ -47,6 +48,31 @@ class SubGridsDataset(Dataset):
             raise IndexError(f"Index {idx} out of range for molecule supplier.")
         if mol is None:
             raise ValueError(f"Invalid molecule at index {idx} in {self.mols_filename}.")
-        tensor_x = torch.randn(6, 32, 32, 32)
-        tensor_y = torch.randn(3, 32, 32, 32)
-        return tensor_x, tensor_y
+        
+        translation = get_translation_vector(mol.GetConformer().GetPositions())
+        mol = translate_mol(mol, translation)
+        pharmacophore = Pharmacophore.from_mol(mol, ignore_directions=True)
+        mol_v = Voxelizer(channels=config["channels"], resolution=config["resolution"], mode="gaussian")
+        pharm_v = Voxelizer(channels=PHARMACOPHORE_CHANNELS, resolution=config["resolution"], mode="gaussian")
+        atom_dict = mol_to_atom_dict(mol)
+        pharm_dict = pharmacophore.to_dict()
+        print(pharm_dict)
+        print(atom_dict)
+        atom_grid = mol_v.voxelize(atom_dict)
+        side = mol_v.distance_to_voxel(config["side"])
+        stride = mol_v.distance_to_voxel(config["stride"])
+        roi_indices = mol_v.get_indexes(pharmacophore.get_coordinates())
+        
+        return None, None
+    
+
+
+if __name__ == "__main__":
+    # Load a molecule
+    os.chdir(os.path.join(os.path.dirname(__file__), "."))
+    # suppl = Chem.SDMolSupplier("./raw/zinc3d_test.sdf", removeHs=False, sanitize=False, strictParsing=False)
+    # mol = suppl[0]
+    # # Extract pharmacophore features
+    # print("\nExtracting Pharmacophore Features...")
+    dataset = SubGridsDataset(mols_filename="../../data/raw/original_benzene.sdf")
+    # dataset[0]
