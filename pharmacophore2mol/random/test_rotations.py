@@ -39,5 +39,5 @@ if __name__ == "__main__":
     fragments = fragment_voxel_grid(grid, side, stride, roi_indices)
     print("fragment count with voxelization:", fragments.shape[0])
 
-    frag_count = get_frag_count(dummy_grid.shape[1:], roi_indices, side, stride)
+    frag_count = get_frag_count(dummy_grid.shape[1:], side, stride, roi_indices)
     print("fragment count with frag_count:", frag_count)

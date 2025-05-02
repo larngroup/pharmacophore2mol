@@ -13,14 +13,15 @@ if __name__ == "__main__":
 
     # Define the dataset and dataloader
     dataset = SubGridsDataset(mols_filename="../../data/raw/zinc3d_test.sdf")
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
-
-    model = UNet3d(in_channels=6, out_channels=3, features=[32, 64, 128, 256]).to(config["device"])
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True) #idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
+    model = UNet3d(in_channels=5, out_channels=8, features=[32, 64, 128, 256]).to(config["device"])
     for epoch in range(config["epochs"]):
         
         # Training loop
-        loop = tqdm(enumerate(dataloader), total=len(dataloader), leave=False)
+        loop = tqdm(enumerate(dataloader), total=len(dataloader), leave=True, desc=f"Epoch {epoch + 1}/{config['epochs']}")
         for batch_idx, (data, targets) in loop:
+            # exit()
+            # pass
             data = data.to(config["device"])
             targets = targets.to(config["device"])
             optimizer = torch.optim.Adam(model.parameters(), lr=config["learning_rate"])
@@ -33,7 +34,6 @@ if __name__ == "__main__":
             optimizer.step()
 
             # Update the progress bar
-            loop.set_description(f"Epoch {epoch + 1}/{config['epochs']}")
             loop.set_postfix(loss=loss.item())    
     loop.close()
     print("Training complete.")

@@ -69,7 +69,7 @@ class Voxelizer:
                 }
 
         min_grid_size: tuple or None, optional
-            A tuple with the minimum voxel grid dimensions. If None, the the minimum size to fit all the
+            A tuple with the minimum voxel grid dimensions. If None, or if less than needed, the the minimum size to fit all the
             points will be automatically calculated. Dimentions should be passed as absolute values
             (meaning in the same units as the points), and not as the relative size according to the
             voxel resolution. The dimentions shall be interpreted as minimum values, and will be rounded
@@ -110,14 +110,18 @@ class Voxelizer:
             if min_grid_size is None:
                 #calculate the minimum grid size and initialize
                 # min_grid_size = np.array([max([max([point[i] for point in points[channel]]) for channel in points]) for i in range(3)])
-                all_coords = np.vstack([points[channel] for channel in points])
-                min_grid_size = self.get_min_grid_size(all_coords)
+                # all_coords = np.vstack([points[channel] for channel in points])
+                # min_grid_size = self.get_min_grid_size(all_coords)
+                min_grid_size = np.zeros(3) #TODO: should work, but check this
             elif not isinstance(min_grid_size, np.ndarray):
                 min_grid_size = np.array(min_grid_size)
             if min_grid_size.shape != (3,):
                 raise ValueError(f"min_grid_size should be a 3d tuple or list, but got {min_grid_size.shape}")
 
-            grid_shape = self.get_indexes(min_grid_size).astype(int) + 1
+            all_coords = np.vstack([points[channel] for channel in points])
+            needed_size = self.get_min_grid_size(all_coords)
+            grid_size = np.maximum(min_grid_size, needed_size) #get the maximum size between the two, element wise
+            grid_shape = self.get_indexes(grid_size).astype(int) + 1
         # print(grid_shape)
         grid = np.zeros((len(self.channels), *grid_shape), dtype=np.float32)
         
@@ -291,12 +295,12 @@ def fragment_voxel_grid(grid: np.ndarray, side: int, stride: int=1, roi_indices:
         if (roi_indices < 0).any():
             raise ValueError("roi_indices should not contain negative coordinates")
         
-        low_corners = _get_low_corners(grid.shape[1:], roi_indices, side, stride)
+        low_corners = _get_low_corners(grid.shape[1:], side, stride, roi_indices)
     
     else:
         max_x, max_y, max_z = [ceil((dim_size - side + 1) / stride) * stride for dim_size in grid.shape[1:]] #MAX IS EXCLUSIVE!!!
         low_corners = _expand_ranges((0, max_x), (0, max_y), (0, max_z), step=stride)
-
+    
     fragments = []
     for x, y, z in low_corners:
         fragment = grid[:, x:x+side, y:y+side, z:z+side]
@@ -305,7 +309,7 @@ def fragment_voxel_grid(grid: np.ndarray, side: int, stride: int=1, roi_indices:
     return np.array(fragments)
 
 
-def get_frag_count(grid_shape: tuple, roi_indices: np.ndarray, side: int, stride: int) -> int:
+def get_frag_count(grid_shape: tuple, side: int, stride: int, roi_indices: np.ndarray) -> int:
     """
     Get the number of fragments that will be generated from the voxel grid.
 
@@ -314,21 +318,21 @@ def get_frag_count(grid_shape: tuple, roi_indices: np.ndarray, side: int, stride
     grid_shape: tuple
         The shape of the voxel grid. Should be a tuple with the shape (x, y, z).
         Length should be 3, not 4, as it is a shape, not a grid.
-    roi_indices: np.ndarray
-        The indices of the important voxels. Should be a 2D array with shape (#points, 3).
     side: int
         The size of the cubic fragments, in voxels.
     stride: int
         The stride between fragments, in voxels.
+    roi_indices: np.ndarray
+        The indices of the important voxels. Should be a 2D array with shape (#points, 3).
     """
     
-    low_corners = _get_low_corners(grid_shape, roi_indices, side, stride)
+    low_corners = _get_low_corners(grid_shape, side, stride, roi_indices)
     return len(low_corners)
     
 
 
 
-def _get_low_corners(voxel_grid_shape: tuple, roi_indices: np.ndarray, side: int, stride: int) -> np.ndarray:
+def _get_low_corners(voxel_grid_shape: tuple, side: int, stride: int, roi_indices: np.ndarray) -> np.ndarray:
     """
     Get the lowest corners of the subgrids that contain at least one of the important voxels.
     "Lowest corner" is the index (x, y, z) of the voxel with lowest x, y, z coordinates in the subgrid.
@@ -338,12 +342,12 @@ def _get_low_corners(voxel_grid_shape: tuple, roi_indices: np.ndarray, side: int
     voxel_grid_shape: tuple
         The shape of the voxel grid. Should be a tuple with the shape (x, y, z).
         Length should be 3, not 4, as it is a shape, not a grid.
-    roi_indices: np.ndarray
-        The indices of the important voxels. Should be a 2D array with shape (#points, 3).
     side: int
         The size of the cubic fragments, in voxels.
     stride: int
         The stride between fragments, in voxels.
+    roi_indices: np.ndarray
+        The indices of the important voxels. Should be a 2D array with shape (#points, 3).
     """
 
     grid_size_x, grid_size_y, grid_size_z = voxel_grid_shape
