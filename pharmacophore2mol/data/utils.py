@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -106,5 +107,26 @@ def plot_voxel_grid_sweep(voxel_grid: np.ndarray, title: str = "Voxel Grid Sweep
     plt.show()
 
     return ani
+
+
+def worker_tracer_init_fn(worker_id):
+    import viztracer
+    # Each worker gets its own tracer
+    worker_tracer = viztracer.VizTracer(
+        output_file=f"worker_{worker_id}_trace.json",
+        tracer_entries=1000000
+    )
+    worker_tracer.start()
+    
+    # Optional: store the tracer in a global variable so you can access it later
+    import builtins
+    builtins.__viz_tracer__ = worker_tracer
+    
+    print(f"Worker {worker_id} initialized with tracer")
+    
+    # Register an exit handler to save the trace when the worker exits
+    import atexit
+    atexit.register(worker_tracer.stop)
+    atexit.register(worker_tracer.save)
 
     
