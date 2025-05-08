@@ -30,7 +30,7 @@ if __name__ == "__main__":
     # import multiprocessing as mp
     # tmp.Process = mp.Process
 
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)#, worker_init_fn=worker_tracer_init_fn) #idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=16)#, worker_init_fn=worker_tracer_init_fn) #idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
     # model = UNet3d(in_channels=5, out_channels=8, features=[32, 64, 128, 256]).to(config["device"])
     for epoch in range(config["epochs"]):
         counter = 0
@@ -39,7 +39,7 @@ if __name__ == "__main__":
         for batch_idx, (data, targets) in loop:
             # exit()
             pass
-            if counter == 2:
+            if counter == 20:
                 break
             counter += 1
             # data = data.to(config["device"])
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
             # # Update the progress bar
             # loop.set_postfix(loss=loss.item())
-        break    
+        # break    
     loop.close()
     print("Training complete.")
 
