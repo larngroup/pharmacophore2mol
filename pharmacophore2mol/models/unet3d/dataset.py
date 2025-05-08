@@ -78,6 +78,9 @@ class SubGridsDataset(Dataset):
             pharm_dict = pharmacophore.to_dict()
             atom_grid = mol_v.voxelize(atom_dict, min_grid_size=(config["side"], config["side"], config["side"]))
             pharm_grid = pharm_v.voxelize(pharm_dict, force_shape=atom_grid.shape[1:])
+
+            #all till here could be saved or cached in the future
+            
             side = mol_v.distance_to_voxel(config["side"])
             stride = mol_v.distance_to_voxel(config["stride"])
             roi_indices = mol_v.get_indexes(pharmacophore.get_coordinates())

@@ -10,6 +10,7 @@ It also contains some functionality intended to fragment the voxel grid into sma
 import numpy as np
 from math import ceil
 from pharmacophore2mol.data.utils import get_translation_vector, mol_to_atom_dict
+from scipy.spatial.distance import cdist
 
 class Voxelizer:
     """
@@ -169,7 +170,7 @@ class Voxelizer:
         """Calculate the voxels for a channel."""
         func_map = {
             "binary": self._binary,
-            "ivd": self._inverse_squared_distance,
+            # "ivd": self._inverse_squared_distance,
             "gaussian": self._gaussian,
             "dry_run": self._dry_run
         }
@@ -223,8 +224,10 @@ class Voxelizer:
 
         #stack to form a grid of coordinates
         grid_coords = np.stack([x, y, z], axis=-1).reshape(-1, 3) #shape (nr_of_coordinates, 3)
+        grid_gauss = np.exp((-cdist(grid_coords, coords, metric='sqeuclidean')) / (2 * scaled_std ** 2)) #this was already highly optimized, even faster than using einsum
 
-        grid_gauss = np.exp(-((np.linalg.norm(grid_coords[:, None] - coords, axis=2) ** 2) / (2 * scaled_std ** 2)))
+
+
         if pooling == "max":
             grid_gauss = np.max(grid_gauss, axis=1).reshape(shape) #shape (shape[0], shape[1], shape[2])
         elif pooling == "avg":

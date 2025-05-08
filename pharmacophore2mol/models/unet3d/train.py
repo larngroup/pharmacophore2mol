@@ -8,15 +8,15 @@ from tqdm import tqdm
 import atexit
 from pharmacophore2mol.models.unet3d.model import UNet3d
 from pharmacophore2mol.models.unet3d.config import config
-from pharmacophore2mol.data.utils import worker_tracer_init_fn
-import viztracer
+# from pharmacophore2mol.data.utils import worker_tracer_init_fn
+# import viztracer
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()  # For Windows compatibility
-    tracer = viztracer.VizTracer(output_file="main_process_trace.json")
-    tracer.start()
-    print("Main process initialized with tracer")
+    # multiprocessing.freeze_support()  # For Windows compatibility
+    # tracer = viztracer.VizTracer(output_file="main_process_trace.json")
+    # tracer.start()
+    # print("Main process initialized with tracer")
 
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
@@ -30,8 +30,8 @@ if __name__ == "__main__":
     # import multiprocessing as mp
     # tmp.Process = mp.Process
 
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=3, worker_init_fn=worker_tracer_init_fn) #idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
-    model = UNet3d(in_channels=5, out_channels=8, features=[32, 64, 128, 256]).to(config["device"])
+    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=0)#, worker_init_fn=worker_tracer_init_fn) #idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
+    # model = UNet3d(in_channels=5, out_channels=8, features=[32, 64, 128, 256]).to(config["device"])
     for epoch in range(config["epochs"]):
         counter = 0
         # Training loop
@@ -59,9 +59,9 @@ if __name__ == "__main__":
     loop.close()
     print("Training complete.")
 
-    tracer.stop()
-    os.chdir(os.path.join(os.path.dirname(__file__), "../../.."))
-    tracer.save()
-    worker_traces = glob.glob("worker_*_trace.json")
-    subprocess.run(["viztracer", "--combine", "main_process_trace.json"] + worker_traces + ["--output_file", "result.json"])
-    print("Traces combined into result.json")
+    # tracer.stop()
+    # os.chdir(os.path.join(os.path.dirname(__file__), "../../.."))
+    # tracer.save()
+    # worker_traces = glob.glob("worker_*_trace.json")
+    # subprocess.run(["viztracer", "--combine", "main_process_trace.json"] + worker_traces + ["--output_file", "result.json"])
+    # print("Traces combined into result.json")
