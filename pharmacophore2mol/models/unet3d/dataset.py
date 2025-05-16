@@ -1,8 +1,6 @@
 import os
 from torch.utils.data import Dataset
-import numpy as np
 from rdkit import Chem
-import torch
 from tqdm import tqdm
 from pharmacophore2mol.data.voxelizer import Voxelizer, get_frag_count, fragment_voxel_grid
 from pharmacophore2mol.data.pharmacophore import Pharmacophore, PHARMACOPHORE_CHANNELS
