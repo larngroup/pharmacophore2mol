@@ -1,6 +1,10 @@
 #viztracer
 result.json
 
+#pip-tools and pipreqs
+requirements.in
+update_requirements.txt
+
 /.vscode/
 # /random/
 # Byte-compiled / optimized / DLL files
