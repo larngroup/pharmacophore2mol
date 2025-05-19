@@ -108,4 +108,9 @@ def plot_voxel_grid_sweep(voxel_grid: np.ndarray, title: str = "Voxel Grid Sweep
 
     return ani
 
+
+def sweep_voxel_grid(voxel_grid: np.ndarray):
+    ...
+
+
     

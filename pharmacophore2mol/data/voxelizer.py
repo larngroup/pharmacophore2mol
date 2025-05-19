@@ -48,7 +48,7 @@ class Voxelizer:
     def get_channels(self):
         return self.channels
     
-    def voxelize(self, points: dict, min_grid_size: tuple | None = None, allow_negative_coords=False, force_shape: np.ndarray | None = None) -> np.ndarray: #python 3.10+ stuff, not that portable but pytorch already kinda limits backport to earlier python
+    def voxelize(self, points: dict, min_grid_size: tuple | None = None, min_grid_shape: tuple | None = None, allow_negative_coords=False, force_shape: np.ndarray | None = None) -> np.ndarray: #python 3.10+ stuff, not that portable but pytorch already kinda limits backport to earlier python
         """
         Voxelize a point cloud.
 
@@ -78,12 +78,15 @@ class Voxelizer:
             For example, if a box_size of (10, 10, 10) is passed with a resolution of 0.75, the actual
             box size will be rounded up to (10.5, 10.5, 10.5). The extra 0.5 padding will be added only to
             the maximum sides of the axes of the reference frame, meaning no centering will be made.
+        min_grid_shape: tuple or None, optional
+            Acomplishes the same thing as min_grid_size, but directly in terms of the number of voxels.
+            If passed, it will override the min_grid_size parameter. The shape should be a 3d array with shape (x, y, z).
         allow_negative_coords: bool, optional
             If True, negative coordinates will be allowed, but keep in mind they will be translated to origin. If False, will raise an error if any negative
             coordinates are found in the points parameter.
         force_shape: np.ndarray, optional
             If passed, the output grid will be forced to have the same shape as this parameter.
-            Overrides the min_grid_size parameter. The shape should be a 3d array with shape (x, y, z).
+            Overrides the min_grid_size and the min_grid_shape parameters. The shape should be a 3d array with shape (x, y, z).
         """
 
         #check if translation should be forced
@@ -108,21 +111,32 @@ class Voxelizer:
                 raise ValueError(f"force_shape should be a 3d tuple or list, but got {force_shape.shape}")
             grid_shape = force_shape
         else:
-            if min_grid_size is None:
-                #calculate the minimum grid size and initialize
-                # min_grid_size = np.array([max([max([point[i] for point in points[channel]]) for channel in points]) for i in range(3)])
-                # all_coords = np.vstack([points[channel] for channel in points])
-                # min_grid_size = self.get_min_grid_size(all_coords)
-                min_grid_size = np.zeros(3) #TODO: should work, but check this
-            elif not isinstance(min_grid_size, np.ndarray):
-                min_grid_size = np.array(min_grid_size)
-            if min_grid_size.shape != (3,):
-                raise ValueError(f"min_grid_size should be a 3d tuple or list, but got {min_grid_size.shape}")
+            if min_grid_shape is None:
+                if min_grid_size is None:
+                    #calculate the minimum grid size and initialize
+                    # min_grid_size = np.array([max([max([point[i] for point in points[channel]]) for channel in points]) for i in range(3)])
+                    # all_coords = np.vstack([points[channel] for channel in points])
+                    # min_grid_size = self.get_min_grid_size(all_coords)
+                    min_grid_size = np.zeros(3) #TODO: should work, but check this
+                elif not isinstance(min_grid_size, np.ndarray):
+                    min_grid_size = np.array(min_grid_size)
+                if min_grid_size.shape != (3,):
+                    raise ValueError(f"min_grid_size should be a 3d tuple or list, but got {min_grid_size.shape}")
 
-            all_coords = np.vstack([points[channel] for channel in points])
-            needed_size = self.get_min_grid_size(all_coords)
-            grid_size = np.maximum(min_grid_size, needed_size) #get the maximum size between the two, element wise
-            grid_shape = self.get_indexes(grid_size).astype(int) + 1
+                all_coords = np.vstack([points[channel] for channel in points])
+                needed_size = self.get_min_grid_size(all_coords)
+                grid_size = np.maximum(min_grid_size, needed_size) #get the maximum size between the two, element wise
+                grid_shape = self.get_indexes(grid_size).astype(int) + 1
+            else:
+                if not isinstance(min_grid_shape, np.ndarray):
+                    min_grid_shape = np.array(min_grid_shape)
+                if min_grid_shape.shape != (3,):
+                    raise ValueError(f"min_grid_shape should be a 3d tuple or list, but got {min_grid_shape.shape}")
+                all_coords = np.vstack([points[channel] for channel in points])
+                needed_size = self.get_min_grid_size(all_coords)
+                needed_shape = self.get_indexes(needed_size).astype(int) + 1
+                grid_shape = np.maximum(min_grid_shape, needed_shape) #get the maximum size between the two, element wise
+
         # print(grid_shape)
         grid = np.zeros((len(self.channels), *grid_shape), dtype=np.float32)
         
