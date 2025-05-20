@@ -18,7 +18,7 @@ def save_preds_as_gif(trues: np.ndarray, preds: np.ndarray, channel: int, filena
     The resulting GIF will have 2 rows and n_preds columns.
     Each subplot will display an animation of random noise.
     """
-    fig, axs = plt.subplots(2, n_preds, figsize=(n_preds * 4, 8))
+    fig, axs = plt.subplots(2, n_preds, figsize=(n_preds * 2, 4), dpi=100)
     fig.suptitle("True Grids (UP) vs Predictions (DOWN)", fontsize=16)
 
     preds_to_plot_idxs = np.random.choice(preds.shape[0], n_preds, replace=False)  # Randomly select n_preds indices
@@ -36,7 +36,7 @@ def save_preds_as_gif(trues: np.ndarray, preds: np.ndarray, channel: int, filena
                 ax.imshow(set_to_plot[j, channel, :, :, frame], cmap='viridis', animated=True, vmin=0, vmax=1)
 
     ani = animation.FuncAnimation(fig, update, frames=list(range(preds.shape[4])) + list(range(preds.shape[4] - 2, -1, -1)), interval=50)
-    ani.save(filename, writer='imagemagick', fps=10)
+    ani.save(filename, writer='ffmpeg', fps=10)
         
 
 

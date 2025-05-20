@@ -7,8 +7,11 @@ from rdkit.Chem import AllChem
 from rdkit.Chem import RDConfig
 from rdkit.Chem.Features import FeatDirUtilsRD as FeatDirUtils
 
-PHARMACOPHORE_CHANNELS = [ #COPIED FROM IMRIE: keep = ('Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe')
-    'Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe'
+# PHARMACOPHORE_CHANNELS = [ #COPIED FROM IMRIE: keep = ('Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe')
+#     'Donor', 'Acceptor', 'NegIonizable', 'PosIonizable', 'ZnBinder', 'Aromatic', 'Hydrophobe', 'LumpedHydrophobe'
+# ]
+PHARMACOPHORE_CHANNELS = [
+    'Donor', 'Acceptor', 'Aromatic'
 ]
 
 PHARMACOPHORE_FACTORY = AllChem.BuildFeatureFactory(str(Path(RDConfig.RDDataDir) / "BaseFeatures.fdef"))

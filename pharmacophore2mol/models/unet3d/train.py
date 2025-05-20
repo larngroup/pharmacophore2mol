@@ -16,13 +16,14 @@ if __name__ == "__main__":
     # Define the dataset and dataloader
     train_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 100)
     val_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 5)
-
+    ex_x, ex_y = train_dataset[0]
+    
     # dataset = SubGridsDataset(mols_filepath="../../data/raw/zinc3d_test.sdf")
 
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=8, persistent_workers=True)#idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False, num_workers=8, persistent_workers=True)
 
-    model = UNet3d(in_channels=8, out_channels=5, features=[32, 64, 128, 256]).to(config["device"])
+    model = UNet3d(in_channels=ex_x.shape[0], out_channels=ex_y.shape[0], features=[32, 64, 128, 256]).to(config["device"])
     for epoch in range(config["epochs"]):
         # Training loop
         train_loop = tqdm(enumerate(train_dataloader), total=len(train_dataloader), leave=True, desc=f"Epoch {epoch + 1}/{config['epochs']}", unit="batch")
@@ -46,26 +47,27 @@ if __name__ == "__main__":
             train_loop.refresh()
 
         # end of epoch
-        # Validation loop
-        val_loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader), leave=True, desc=f"Validation {epoch + 1}/{config['epochs']}", unit="batch")
-        all_preds = []
-        all_targets = []
-        with torch.no_grad():
-            for batch_idx, (data, targets) in val_loop:
-                data = data.to(config["device"])
-                targets = targets.to(config["device"])
-                predictions = model(data)
-                all_preds.append(predictions.cpu().numpy())
-                all_targets.append(targets.cpu().numpy())
-                loss = torch.nn.functional.mse_loss(predictions, targets)
+        if (epoch + 1) % 5 == 0:
+            # Validation loop
+            val_loop = tqdm(enumerate(val_dataloader), total=len(val_dataloader), leave=True, desc=f"Validation {epoch + 1}/{config['epochs']}", unit="batch")
+            all_preds = []
+            all_targets = []
+            with torch.no_grad():
+                for batch_idx, (data, targets) in val_loop:
+                    data = data.to(config["device"])
+                    targets = targets.to(config["device"])
+                    predictions = model(data)
+                    all_preds.append(predictions.cpu().numpy())
+                    all_targets.append(targets.cpu().numpy())
+                    loss = torch.nn.functional.mse_loss(predictions, targets)
 
-                # Update the progress bar
-                val_loop.set_postfix(val_loss=loss.item())
-                val_loop.refresh()
-        all_preds = np.concatenate(all_preds, axis=0)
-        all_targets = np.concatenate(all_targets, axis=0)
-        print("Saving predictions as GIF...")
-        save_preds_as_gif(all_targets, all_preds, channel=0, filename=f"./saves/epoch_{epoch + 1}.gif", n_preds=5)
+                    # Update the progress bar
+                    val_loop.set_postfix(val_loss=loss.item())
+                    val_loop.refresh()
+            all_preds = np.concatenate(all_preds, axis=0)
+            all_targets = np.concatenate(all_targets, axis=0)
+            print("Saving predictions as GIF...")
+            save_preds_as_gif(all_targets, all_preds, channel=0, filename=f"./saves/epoch_{epoch + 1}.gif", n_preds=2)
 
             
 
