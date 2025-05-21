@@ -41,14 +41,21 @@ def translate_mol(mol: Chem.Mol, translation_vector: np.ndarray) -> Chem.Mol:
     return mol
 
 
-def get_translation_vector(points: np.ndarray) -> np.ndarray:
+def get_translation_vector(points: np.ndarray, padding=0) -> np.ndarray:
     """
     Get the translation vector to translate the points to the origin.
     This is useful to translate the points back to their original coordinates after voxelization.
+
+    Parameters
+    ----------
+    points : np.ndarray
+        The points to be translated. Should be a 2D array with shape (#points, 3).
+    padding : int, optional
+        The padding to be added to the translation vector, so that the closest point to the edge of the positive octant (x>0, y>0, z>0) is <padding> Angstroms. Default is 0.
     """
     if points.shape[1] != 3 or len(points.shape) != 2:
         raise ValueError(f"Points should be a 2d array with shape (#points, 3), but got {points.shape}")
-    return - np.min(points, axis=0) #TODO: maybe add padding here?
+    return -np.min(points, axis=0) + padding
 
 
 def mol_to_atom_dict(mol: Chem.Mol) -> dict:
@@ -111,6 +118,102 @@ def plot_voxel_grid_sweep(voxel_grid: np.ndarray, title: str = "Voxel Grid Sweep
 
 def sweep_voxel_grid(voxel_grid: np.ndarray):
     ...
+
+
+class RandomRotateMolTransform:
+    """
+    Randomly rotate a molecule around its center of mass.
+    """
+    def __init__(self, angles: tuple=(359, 359, 359)):
+        """
+        Initialize the transform with the given angles.
+        For a full rotation, with uniform probability, set max angle to 359 degrees (Default). Higher values will be clipped to 359.
+        WARNING: the center of mass is not the same as the center of the bounding box.
+        This may cause the molecule to be translated a bit. An additional alignment translation may compensate for this.
+
+        Parameters
+        ----------
+        angles : tuple
+            The maximum angles (degrees) to rotate around the x, y and z axes.
+        """
+        angles = np.clip(angles, 0, 359)
+        angles = np.deg2rad(angles)  # Convert angles to radians
+        self.x, self.y, self.z = angles
+
+    def _get_rotation_matrix(self, angles: tuple) -> np.ndarray:
+        """
+        Get the rotation matrix for the given axis angles.
+
+        Parameters
+        ----------
+        angles : tuple
+            The angles (degrees) to rotate around the x, y and z axes.
+        """
+        x, y, z = angles
+        Rx = np.array([[1, 0, 0],
+                       [0, np.cos(x), -np.sin(x)],
+                       [0, np.sin(x), np.cos(x)]])
+
+        Ry = np.array([[np.cos(y), 0, np.sin(y)],
+                       [0, 1, 0],
+                       [-np.sin(y), 0, np.cos(y)]])
+
+        Rz = np.array([[np.cos(z), -np.sin(z), 0],
+                       [np.sin(z), np.cos(z), 0],
+                       [0, 0, 1]])
+
+        return Rz @ Ry @ Rx
+        
+
+    def __call__(self, mol: Chem.Mol) -> Chem.Mol:
+        # Get the geometric center of the molecule
+        conf = mol.GetConformer(0)
+        coords = conf.GetPositions()
+        center = np.mean(coords, axis=0) #we can use the center of mass, but keep in mind this will translate the molecule a bit due to 
+        angles = np.random.uniform(0, [self.x, self.y, self.z])
+        # Rotate the molecule around the center of mass
+        rotation_matrix = self._get_rotation_matrix(angles)
+        new_coords = (coords - center) @ rotation_matrix + center
+        # Set the new coordinates to the conformer~
+        conf.SetPositions(new_coords)
+        return mol
+    
+
+class RandomFlipMolTransform:
+    """
+    Randomly flip a molecule around its center of mass.
+    """
+    def __init__(self, planes: tuple=(True, True, True)):
+        """
+        Initialize the transform with the given axes.
+        For a full flip, with 50/50 probability for each plane, set all planes to True (Default).
+        WARNING: the center of mass is not the same as the center of the bounding box.
+        This may cause the molecule to be translated a bit. An additional alignment translation may compensate for this.
+
+        Parameters
+        ----------
+        planes : tuple
+            The planes to flip around, in (x=0, y=0, z=0) format. True means possible flip, False means no flip.
+            Default is (True, True, True).
+        """
+        self.planes = planes
+
+    def __call__(self, mol: Chem.Mol) -> Chem.Mol:
+        # Get the geometric center of the molecule
+        conf = mol.GetConformer(0)
+        coords = conf.GetPositions()
+        center = np.mean(coords, axis=0)
+        probabilities = np.random.uniform(0, 1, size=3)
+        flip_axes = [bool(self.planes[i] and prob > 0.5) for i, prob in enumerate(probabilities)]
+        for plane in range(3):
+            if flip_axes[plane]:
+                coords[:, plane] = -coords[:, plane] + 2 * center[plane]
+        # Set the new coordinates to the conformer
+        conf.SetPositions(coords)
+        return mol
+                
+        
+        
 
 
     

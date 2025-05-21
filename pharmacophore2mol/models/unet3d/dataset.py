@@ -9,9 +9,10 @@ from pharmacophore2mol.models.unet3d.config import config
 from pharmacophore2mol.models.unet3d.utils import get_next_multiple_of
 import bisect
 import torchio
+from collections.abc import Iterable
 
 class SubGridsDataset(Dataset):
-    def __init__(self, mols_filepath, transforms=None, force_len=None):
+    def __init__(self, mols_filepath, padding=0, transforms=None, force_len=None):
         """
         Dataset for 3D pharmacophore and molecule voxel grid fragments.
 
@@ -19,11 +20,16 @@ class SubGridsDataset(Dataset):
         ----------
         mols_filepath : str
             Path to the molecule file (SDF format).
+        padding : int, optional
+            This is the minimum distance (in Angstroms) between the closest atom and the edge of the grid. Default is 0.
+        transforms : callable, optional
+            Optional transform or set of transforms to be applied to a sample.
         force_len : int, optional
             Force the dataset to have a specific length. Default is None.
             If provided, it will either truncate or repeat the original dataset to match this length.
         """
         self.mols_filepath = mols_filepath
+        self.padding = padding
         self.transforms = transforms
         self.len = force_len
         self.mol_supplier = self._get_mol_supplier()
@@ -50,10 +56,20 @@ class SubGridsDataset(Dataset):
             self.len = force_len
         else:
             self.len = self.n_samples
+
+    def _load_and_transform(self, mol):
+        if self.transforms is not None:
+            if not isinstance(self.transforms, Iterable):
+                self.transforms = [self.transforms]
+            for transform in self.transforms:
+                mol = transform(mol)
+        rotated_coords = mol.GetConformer().GetPositions()
+        translation = get_translation_vector(mol.GetConformer().GetPositions(), padding=self.padding)
+        mol = translate_mol(mol, translation)
+        return mol
     
     def _count_samples_in_mol(self, mol):
-        translation = get_translation_vector(mol.GetConformer().GetPositions())
-        mol = translate_mol(mol, translation)
+        mol = self._load_and_transform(mol)
         pharmacophore = Pharmacophore.from_mol(mol, ignore_directions=True)
         mol_v = Voxelizer(channels=[], resolution=config["resolution"], mode="dry_run")
         side = get_next_multiple_of(16, mol_v.distance_to_voxel(config["side"]))
@@ -96,11 +112,10 @@ class SubGridsDataset(Dataset):
             if mol is None:
                 raise ValueError(f"Invalid molecule at index {idx} in {self.mols_filepath}.")
             
-            translation = get_translation_vector(mol.GetConformer().GetPositions())
-            mol = translate_mol(mol, translation)
+            mol = self._load_and_transform(mol)
             pharmacophore = Pharmacophore.from_mol(mol, ignore_directions=True)
-            mol_v = Voxelizer(channels=config["channels"], resolution=config["resolution"], mode=config["mode"], std=config["std"])
-            pharm_v = Voxelizer(channels=PHARMACOPHORE_CHANNELS, resolution=config["resolution"], mode=config["mode"], std=config["std"])
+            mol_v = Voxelizer(channels=config["channels"], resolution=config["resolution"], mode=config["mode"])#, std=config["std"])
+            pharm_v = Voxelizer(channels=PHARMACOPHORE_CHANNELS, resolution=config["resolution"], mode=config["mode"])#, std=config["std"])
             atom_dict = mol_to_atom_dict(mol)
             pharm_dict = pharmacophore.to_dict()
             side = get_next_multiple_of(16, mol_v.distance_to_voxel(config["side"]))
@@ -116,9 +131,6 @@ class SubGridsDataset(Dataset):
             pharm_frags = fragment_voxel_grid(pharm_grid, side, stride, roi_indices) #TODO: optimize this. the index calculations should only be done once
             mol_frag = mol_frags[frag_idx]
             pharm_frag = pharm_frags[frag_idx]
-            # if self.transforms is not None:
-            #     mol_frag = self.transforms(mol_frag)
-            #     pharm_frag = self.transforms(pharm_frag)
             return pharm_frag, mol_frag #x, y
     
     def _get_mol_supplier(self):

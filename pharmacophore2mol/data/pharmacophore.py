@@ -126,13 +126,14 @@ class Pharmacophore:
 if __name__ == "__main__":
     # Load a molecule
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
-    suppl = Chem.SDMolSupplier("./raw/zinc3d_test.sdf", removeHs=False, sanitize=False, strictParsing=False)
+    # suppl = Chem.SDMolSupplier("./raw/zinc3d_test.sdf", removeHs=False, sanitize=False, strictParsing=False)
+    suppl = Chem.SDMolSupplier("./raw/original_phenol.sdf", removeHs=False, sanitize=False, strictParsing=False)
     mol = suppl[0]
     # # Extract pharmacophore features
     # print("\nExtracting Pharmacophore Features...")
     pharmacophore = Pharmacophore.from_mol(mol)
-    mol2 = suppl[1]
-    pharmacophore = Pharmacophore.from_mol(mol2)
+    # mol2 = suppl[1]
+    # pharmacophore = Pharmacophore.from_mol(mol2)
     sdf_str = '''lig.pdb
 
 

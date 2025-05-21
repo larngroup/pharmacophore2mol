@@ -24,7 +24,7 @@ config = {
     "channels": ["C", "H", "O"],#, "N", "S"],
     "pooling": "max",
     "std": 1.0,
-    "mode": "gaussian",
+    "mode": "binary",
     "batch_size": 16,
     "epochs": 100,
     "learning_rate": 0.001,
