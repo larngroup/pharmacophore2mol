@@ -8,7 +8,7 @@ from pharmacophore2mol.data.utils import get_translation_vector, translate_mol, 
 from pharmacophore2mol.models.unet3d.config import config
 from pharmacophore2mol.models.unet3d.utils import get_next_multiple_of
 import bisect
-import torchio
+# import torchio
 from collections.abc import Iterable
 
 class SubGridsDataset(Dataset):

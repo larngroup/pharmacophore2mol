@@ -4,57 +4,219 @@
 #
 #    pip-compile requirements.in
 #
+absl-py==2.2.2
+    # via tensorboard
+accelerate==1.7.0
+    # via
+    #   diffusers
+    #   peft
+aiohappyeyeballs==2.6.1
+    # via aiohttp
+aiohttp==3.11.18
+    # via
+    #   datasets
+    #   fsspec
+aiosignal==1.3.2
+    # via aiohttp
+attrs==25.3.0
+    # via aiohttp
+certifi==2025.4.26
+    # via requests
+charset-normalizer==3.4.2
+    # via requests
 colorama==0.4.6
     # via tqdm
 contourpy==1.3.2
     # via matplotlib
 cycler==0.12.1
     # via matplotlib
+datasets==2.14.4
+    # via diffusers
+diffusers[training]==0.33.1
+    # via -r requirements.in
+dill==0.3.7
+    # via
+    #   datasets
+    #   multiprocess
 filelock==3.18.0
-    # via torch
+    # via
+    #   diffusers
+    #   huggingface-hub
+    #   torch
+    #   transformers
 fonttools==4.58.0
     # via matplotlib
-fsspec==2025.3.2
-    # via torch
+frozenlist==1.6.0
+    # via
+    #   aiohttp
+    #   aiosignal
+fsspec[http]==2025.3.2
+    # via
+    #   datasets
+    #   huggingface-hub
+    #   torch
+grpcio==1.71.0
+    # via tensorboard
+huggingface-hub==0.31.4
+    # via
+    #   accelerate
+    #   datasets
+    #   diffusers
+    #   peft
+    #   tokenizers
+    #   transformers
+idna==3.10
+    # via
+    #   requests
+    #   yarl
+importlib-metadata==8.7.0
+    # via diffusers
 jinja2==3.1.6
-    # via torch
+    # via
+    #   diffusers
+    #   torch
 kiwisolver==1.4.8
     # via matplotlib
+markdown==3.8
+    # via tensorboard
 markupsafe==3.0.2
-    # via jinja2
+    # via
+    #   jinja2
+    #   werkzeug
 matplotlib==3.10.3
     # via -r requirements.in
 mpmath==1.3.0
     # via sympy
+multidict==6.4.4
+    # via
+    #   aiohttp
+    #   yarl
+multiprocess==0.70.15
+    # via datasets
 networkx==3.4.2
     # via torch
 numpy==2.2.5
     # via
+    #   accelerate
     #   contourpy
+    #   datasets
+    #   diffusers
     #   matplotlib
+    #   pandas
+    #   peft
     #   rdkit
     #   scipy
+    #   tensorboard
+    #   transformers
 packaging==25.0
-    # via matplotlib
+    # via
+    #   accelerate
+    #   datasets
+    #   huggingface-hub
+    #   matplotlib
+    #   peft
+    #   tensorboard
+    #   transformers
+pandas==2.2.3
+    # via datasets
+peft==0.15.2
+    # via diffusers
 pillow==11.2.1
     # via
+    #   diffusers
     #   matplotlib
     #   rdkit
+propcache==0.3.1
+    # via
+    #   aiohttp
+    #   yarl
+protobuf==3.20.3
+    # via
+    #   diffusers
+    #   tensorboard
+psutil==7.0.0
+    # via
+    #   accelerate
+    #   peft
+pyarrow==20.0.0
+    # via datasets
 pyparsing==3.2.3
     # via matplotlib
 python-dateutil==2.9.0.post0
-    # via matplotlib
+    # via
+    #   matplotlib
+    #   pandas
+pytz==2025.2
+    # via pandas
+pyyaml==6.0.2
+    # via
+    #   accelerate
+    #   datasets
+    #   huggingface-hub
+    #   peft
+    #   transformers
 rdkit==2025.3.2
     # via -r requirements.in
+regex==2024.11.6
+    # via
+    #   diffusers
+    #   transformers
+requests==2.32.3
+    # via
+    #   datasets
+    #   diffusers
+    #   huggingface-hub
+    #   transformers
+safetensors==0.5.3
+    # via
+    #   accelerate
+    #   diffusers
+    #   peft
+    #   transformers
 scipy==1.15.3
     # via -r requirements.in
 six==1.17.0
-    # via python-dateutil
+    # via
+    #   python-dateutil
+    #   tensorboard
 sympy==1.14.0
     # via torch
+tensorboard==2.19.0
+    # via diffusers
+tensorboard-data-server==0.7.2
+    # via tensorboard
+tokenizers==0.21.1
+    # via transformers
 torch==2.7.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   accelerate
+    #   peft
 tqdm==4.67.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   datasets
+    #   huggingface-hub
+    #   peft
+    #   transformers
+transformers==4.52.2
+    # via peft
 typing-extensions==4.13.2
-    # via torch
+    # via
+    #   huggingface-hub
+    #   torch
+tzdata==2025.2
+    # via pandas
+urllib3==2.4.0
+    # via requests
+werkzeug==3.1.3
+    # via tensorboard
+xxhash==3.5.0
+    # via datasets
+yarl==1.20.0
+    # via aiohttp
+zipp==3.21.0
+    # via importlib-metadata
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools
