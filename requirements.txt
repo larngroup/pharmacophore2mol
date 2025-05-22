@@ -107,6 +107,7 @@ numpy==2.2.5
     #   rdkit
     #   scipy
     #   tensorboard
+    #   torchvision
     #   transformers
 packaging==25.0
     # via
@@ -126,6 +127,7 @@ pillow==11.2.1
     #   diffusers
     #   matplotlib
     #   rdkit
+    #   torchvision
 propcache==0.3.1
     # via
     #   aiohttp
@@ -192,6 +194,9 @@ torch==2.7.0
     #   -r requirements.in
     #   accelerate
     #   peft
+    #   torchvision
+torchvision==0.22.0
+    # via -r requirements.in
 tqdm==4.67.1
     # via
     #   -r requirements.in
