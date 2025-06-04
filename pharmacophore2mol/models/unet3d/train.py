@@ -7,6 +7,7 @@ from tqdm import tqdm
 from pharmacophore2mol.models.unet3d.model import UNet3d
 from pharmacophore2mol.models.unet3d.config import config
 from pharmacophore2mol.models.unet3d.utils import save_preds_as_gif
+from pharmacophore2mol.data.utils import RandomRotateMolTransform, RandomFlipMolTransform
 
 
 if __name__ == "__main__":
@@ -14,8 +15,8 @@ if __name__ == "__main__":
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
     # Define the dataset and dataloader
-    train_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 100)
-    val_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 5)
+    train_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 100, transforms=[RandomRotateMolTransform(), RandomFlipMolTransform()])
+    val_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 5, transforms=[RandomRotateMolTransform(), RandomFlipMolTransform()])
     ex_x, ex_y = train_dataset[0]
     
     # dataset = SubGridsDataset(mols_filepath="../../data/raw/zinc3d_test.sdf")
@@ -38,7 +39,7 @@ if __name__ == "__main__":
             predictions = model(data)
             with torch.amp.autocast(device_type=config["device"]):
                 predictions = model(data)
-                loss = torch.nn.functional.mse_loss(predictions, targets)
+                loss = config["loss"](predictions, targets)
             loss.backward()
             optimizer.step()
 
@@ -67,7 +68,7 @@ if __name__ == "__main__":
             all_preds = np.concatenate(all_preds, axis=0)
             all_targets = np.concatenate(all_targets, axis=0)
             print("Saving predictions as GIF...")
-            save_preds_as_gif(all_targets, all_preds, channel=0, filename=f"./saves/epoch_{epoch + 1}.gif", n_preds=2)
+            save_preds_as_gif(all_targets, all_preds, channel=0, filename=f"./saves/epoch_{epoch + 1}.gif", n_preds=5)
 
             
 

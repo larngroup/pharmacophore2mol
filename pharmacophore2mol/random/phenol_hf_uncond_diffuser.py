@@ -15,6 +15,8 @@ from accelerate import Accelerator
 from huggingface_hub import create_repo, upload_folder
 from tqdm.auto import tqdm
 from pathlib import Path
+from accelerate import notebook_launcher
+from torchvision.transforms.functional import to_pil_image
 
 
 os.chdir(os.path.join(os.path.dirname(__file__), "."))
@@ -25,7 +27,7 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 class TrainingConfig:
     image_size = 128
     train_batch_size = 8
-    eval_batch_size = 1
+    eval_batch_size = 8
     num_epochs = 50
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
@@ -192,9 +194,19 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         progress_bar = tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
         progress_bar.set_description(f"Epoch {epoch}")
 
-
+        print_stats = True
         for step, batch in enumerate(train_dataloader):
-            
+            if print_stats and  (step / len(train_dataloader)) > 0.1:
+                print_stats = False
+                print(step)
+                print(batch["images"][0][0][63])
+                # Convert batch["images"] to a list of PIL RGB images
+                def denormalize(tensor):
+                    return (tensor * 0.5 + 0.5).clamp(0, 1)
+                pil_images = [to_pil_image(denormalize(image), mode="RGB") for image in batch["images"]]
+                image_grid = make_image_grid(pil_images, rows=2, cols=4)
+                statsdir = os.path.join(config.output_dir, "stats")
+                image_grid.save(f"{statsdir}/train_batch_{epoch}_{step}.png")  
             clean_images = batch["images"]
             # Sample noise to add to the images
             noise = torch.randn(clean_images.shape, device=clean_images.device)
@@ -248,7 +260,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
 
 
-from accelerate import notebook_launcher
+
 args = (config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
 notebook_launcher(train_loop, args=args, num_processes=1)
 

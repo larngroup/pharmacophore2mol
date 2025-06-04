@@ -114,8 +114,8 @@ class SubGridsDataset(Dataset):
             
             mol = self._load_and_transform(mol)
             pharmacophore = Pharmacophore.from_mol(mol, ignore_directions=True)
-            mol_v = Voxelizer(channels=config["channels"], resolution=config["resolution"], mode=config["mode"])#, std=config["std"])
-            pharm_v = Voxelizer(channels=PHARMACOPHORE_CHANNELS, resolution=config["resolution"], mode=config["mode"])#, std=config["std"])
+            mol_v = Voxelizer(channels=config["channels"], resolution=config["resolution"], mode=config["mode"], std=config["std"])
+            pharm_v = Voxelizer(channels=PHARMACOPHORE_CHANNELS, resolution=config["resolution"], mode=config["mode"], std=config["std"])
             atom_dict = mol_to_atom_dict(mol)
             pharm_dict = pharmacophore.to_dict()
             side = get_next_multiple_of(16, mol_v.distance_to_voxel(config["side"]))

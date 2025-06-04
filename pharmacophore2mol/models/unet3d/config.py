@@ -23,10 +23,11 @@ config = {
     "resolution": 0.2,
     "channels": ["C", "H", "O"],#, "N", "S"],
     "pooling": "max",
-    "std": 1.0,
-    "mode": "binary",
+    "std": 0.5,
+    "mode": "gaussian",
     "batch_size": 16,
     "epochs": 100,
     "learning_rate": 0.001,
     "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "loss": get_loss("mse"),
 }
