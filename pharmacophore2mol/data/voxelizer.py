@@ -227,6 +227,7 @@ class Voxelizer:
                     grid[i, j, k] = np.sum(1 / np.linalg.norm(coords - np.array([i + offset_to_center, j + offset_to_center, k + offset_to_center]), axis=1) ** 2)
         return grid
 
+    #maryam here is the where i convert from distances to bound values between [0.0, 1.0] (the distribution here is more or less exponential)
     def _gaussian(self, shape, coords: np.ndarray, std: float=1.0, pooling="max"):
         offset_to_center = self.resolution/2
         coords = coords / self.resolution

@@ -363,6 +363,9 @@ class UNet3DV2(nn.Module):
         * `t` has shape `[batch_size]`
         """
 
+        #maryam reshaping to -1, 1 
+        x = (x * 2) - 1
+
         # Get time-step embeddings
         t = self.time_emb(t)
 

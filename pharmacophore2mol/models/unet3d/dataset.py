@@ -57,7 +57,7 @@ class SubGridsDataset(Dataset):
             self.len = force_len
         else:
             self.len = self.n_samples
-
+            
     def _load_and_transform(self, mol):
         if self.transforms is not None:
             if not isinstance(self.transforms, Iterable):

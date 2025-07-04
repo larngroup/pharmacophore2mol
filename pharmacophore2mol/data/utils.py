@@ -20,6 +20,8 @@ from rdkit import Chem
 #     return translated_points
 
 
+#maryam the data agugmentation goes here
+
 def translate_mol(mol: Chem.Mol, translation_vector: np.ndarray) -> Chem.Mol:
     """
     Translate a molecule according to the translation vector.
