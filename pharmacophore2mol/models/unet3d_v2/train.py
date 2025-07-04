@@ -48,7 +48,7 @@ if __name__ == "__main__":
     #logging and viz
     writer = SummaryWriter(log_dir=f"runs/exp_at_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     # Define the dataset and dataloader
-    train_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=1000, transforms=[], return_clean=True)
+    train_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=10000, transforms=[], return_clean=True)
     val_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=100, transforms=[], return_clean=True)
     example_batch = [train_dataset[i] for i in random.sample(range(len(train_dataset)), 16)]
     #plot example_batch distribution
