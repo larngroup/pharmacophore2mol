@@ -24,6 +24,11 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, num_workers=8, persistent_workers=True)#idk why but calls to __getitem__ from dataloader seem some ms slower than direct calls to __getitem__ from dataset, for the same indexes. even for slices. this is just about the __getitem__ call time, checked by profiling, and not about all other extra methods. TODO: investigate this further.
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False, num_workers=8, persistent_workers=True)
 
+
+
+    #TODO: USE GRADSCALER DOWN HERE!!!
+
+    
     model = UNet3d(in_channels=ex_x.shape[0], out_channels=ex_y.shape[0], features=[32, 64, 128, 256]).to(config["device"])
     for epoch in range(config["epochs"]):
         # Training loop

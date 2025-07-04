@@ -1,4 +1,5 @@
 import os
+import torch
 from torch.utils.data import Dataset
 from rdkit import Chem
 from tqdm import tqdm
@@ -131,7 +132,7 @@ class SubGridsDataset(Dataset):
             pharm_frags = fragment_voxel_grid(pharm_grid, side, stride, roi_indices) #TODO: optimize this. the index calculations should only be done once
             mol_frag = mol_frags[frag_idx]
             pharm_frag = pharm_frags[frag_idx]
-            return pharm_frag, mol_frag #x, y
+            return torch.tensor(pharm_frag), torch.tensor(mol_frag) #x, y
     
     def _get_mol_supplier(self):
         return Chem.SDMolSupplier(self.mols_filepath, removeHs=False, sanitize=True, strictParsing=False)
