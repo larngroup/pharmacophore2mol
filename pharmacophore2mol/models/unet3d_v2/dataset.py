@@ -6,7 +6,7 @@ import torch
 
 
 class NoisySubGridsDataset(SubGridsDataset):
-    def __init__(self, schedule_type="cosine", n_timesteps=1000, *args, **kwargs):
+    def __init__(self, schedule_type="cosine", n_timesteps=1000, return_clean=False, *args, **kwargs):
         """
         Dataset for 3D pharmacophore and molecule voxel grid fragments with added noise.
 
@@ -14,12 +14,30 @@ class NoisySubGridsDataset(SubGridsDataset):
         ----------
         schedule_type : str
             Type of noise schedule to use. Options are "cosine" or "linear".
+        n_timesteps : int
+            Number of timesteps for the noise schedule. Default is 1000.
+        return_clean : bool
+            If True, the dataset will return the clean molecule fragment along with the noised one. Default is False. See "Returns" section for details.
         *args, **kwargs : 
             Additional arguments passed to the parent class.
+
+
+        Returns
+        -------
+        pharm_frag: torch.Tensor
+            Voxel grid of the pharmacophore fragment (no noise).
+        mol_frag: torch.Tensor, Optional
+            Voxel grid of the molecule fragment (no noise). Only poresent if `return_clean` is True.
+        noisy_mol_frag: torch.Tensor
+            Noised voxel grid of the molecule fragment.
+        added_noise: torch.Tensor
+            Noise that was added to the molecule fragment.
+        timestep: int
+            Random timestep that was used for noise addition.
         """
         super().__init__(*args, **kwargs)
         self.n_timesteps = n_timesteps
-
+        self.return_clean = return_clean
         if schedule_type == "cosine":
             self.scheduler = DDPMScheduler(
                 num_train_timesteps=n_timesteps,
@@ -63,6 +81,9 @@ class NoisySubGridsDataset(SubGridsDataset):
             added_noise = torch.randn_like(mol_frag)
             # Add noise to the molecule fragment
             noised_mol_frag = self.scheduler.add_noise(mol_frag.unsqueeze(0), added_noise.unsqueeze(0), timestep).squeeze(0)
+            if self.return_clean:
+                # If return_clean is True, return the clean molecule fragment as well
+                return pharm_frag, mol_frag, noised_mol_frag, added_noise, timestep.item()
             return pharm_frag, noised_mol_frag, added_noise, timestep.item()
     
     def __len__(self):

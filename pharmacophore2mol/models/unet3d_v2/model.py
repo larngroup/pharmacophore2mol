@@ -70,7 +70,7 @@ class ResidualBlock(nn.Module):
         * `in_channels` is the number of input channels
         * `out_channels` is the number of output channels
         * `time_channels` is the number channels in the time step ($t$) embeddings
-        * `n_groups` is the number of groups for [group normalization](../../normalization/group_norm/index.html)
+        * `n_groups` is the number of groups for group normalization
         * `dropout` is the dropout rate
         """
         super().__init__()
@@ -125,7 +125,7 @@ class AttentionBlock(nn.Module):
         * `n_channels` is the number of channels in the input
         * `n_heads` is the number of heads in multi-head attention
         * `d_k` is the number of dimensions in each head
-        * `n_groups` is the number of groups for [group normalization](../../normalization/group_norm/index.html)
+        * `n_groups` is the number of groups for group normalization
         """
         super().__init__()
 
@@ -188,11 +188,11 @@ class DownBlock(nn.Module):
     This combines `ResidualBlock` and `AttentionBlock`. These are used in the first half of U-Net at each resolution.
     """
 
-    def __init__(self, in_channels: int, out_channels: int, time_channels: int, has_attn: bool):
+    def __init__(self, in_channels: int, out_channels: int, time_channels: int, has_attn: bool, n_groups: int = 32):
         super().__init__()
-        self.res = ResidualBlock(in_channels, out_channels, time_channels)
+        self.res = ResidualBlock(in_channels, out_channels, time_channels, n_groups=n_groups)
         if has_attn:
-            self.attn = AttentionBlock(out_channels)
+            self.attn = AttentionBlock(out_channels, n_groups=n_groups)
         else:
             self.attn = nn.Identity()
 
@@ -209,13 +209,13 @@ class UpBlock(nn.Module):
     This combines `ResidualBlock` and `AttentionBlock`. These are used in the second half of U-Net at each resolution.
     """
 
-    def __init__(self, in_channels: int, out_channels: int, time_channels: int, has_attn: bool):
+    def __init__(self, in_channels: int, out_channels: int, time_channels: int, has_attn: bool, n_groups: int = 32):
         super().__init__()
         # The input has `in_channels + out_channels` because we concatenate the output of the same resolution
         # from the first half of the U-Net
-        self.res = ResidualBlock(in_channels + out_channels, out_channels, time_channels)
+        self.res = ResidualBlock(in_channels + out_channels, out_channels, time_channels, n_groups=n_groups)
         if has_attn:
-            self.attn = AttentionBlock(out_channels)
+            self.attn = AttentionBlock(out_channels, n_groups=n_groups)
         else:
             self.attn = nn.Identity()
 
@@ -233,12 +233,12 @@ class MiddleBlock(nn.Module):
     This block is applied at the lowest resolution of the U-Net.
     """
 
-    def __init__(self, n_channels: int, time_channels: int):
+    def __init__(self, n_channels: int, time_channels: int, n_groups: int = 32):
         super().__init__()
-        self.res1 = ResidualBlock(n_channels, n_channels, time_channels)
-        self.attn = AttentionBlock(n_channels)
+        self.res1 = ResidualBlock(n_channels, n_channels, time_channels, n_groups=n_groups)
+        self.attn = AttentionBlock(n_channels, n_groups=n_groups)
         # self.attn = nn.Identity()
-        self.res2 = ResidualBlock(n_channels, n_channels, time_channels)
+        self.res2 = ResidualBlock(n_channels, n_channels, time_channels, n_groups=n_groups)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor):
         x = self.res1(x, t)
@@ -289,7 +289,8 @@ class UNet3DV2(nn.Module):
                     n_internal_channels: int = 64,
                     ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 4),
                     is_attn: Union[Tuple[bool, ...], List[bool]] = (False, False, True, True),
-                    n_blocks: int = 2):
+                    n_blocks: int = 2,
+                    n_groups: int = 8):
         """
         * `input_channels` is the number of channels in the input.
         * `output_channels` is the number of channels in the output.
@@ -297,8 +298,12 @@ class UNet3DV2(nn.Module):
         * `ch_mults` is the list of channel numbers at each resolution. The number of channels is `ch_mults[i] * n_channels`
         * `is_attn` is a list of booleans that indicate whether to use attention at each resolution. WARNING: there's an attention block not controlled by this parameter in the middle bottleneck of the UNet
         * `n_blocks` is the number of `Up/DownBlocks` at each resolution (number of blocks before reducing or increasing size)
+        * `n_groups` is the number of groups for [group normalization](../../normalization/group_norm/index.html). Default is 8, 1 is LayerNorm
         """
         super().__init__()
+        self.n_groups = n_groups
+        assert len(ch_mults) == len(is_attn), "The number of channel multipliers and attention flags must match"
+        assert n_internal_channels % n_groups == 0, "The number of internal channels must be divisible by the number of groups for group normalization"
 
         # Number of resolutions
         n_resolutions = len(ch_mults)
@@ -319,7 +324,7 @@ class UNet3DV2(nn.Module):
             current_channels = prev_channels * ch_mults[i]
             # Add `n_blocks`
             for _ in range(n_blocks):
-                down.append(DownBlock(prev_channels, current_channels, n_internal_channels * 4, is_attn[i]))
+                down.append(DownBlock(prev_channels, current_channels, n_internal_channels * 4, is_attn[i], n_groups=self.n_groups))
                 prev_channels = current_channels
             # Down sample at all resolutions except the last
             if i < n_resolutions - 1:
@@ -329,7 +334,7 @@ class UNet3DV2(nn.Module):
         self.down = nn.ModuleList(down)
 
         # Middle block
-        self.middle = MiddleBlock(current_channels, n_internal_channels * 4, )
+        self.middle = MiddleBlock(current_channels, n_internal_channels * 4, n_groups=self.n_groups)
 
         # #### Second half of U-Net - increasing resolution
         up = []
@@ -340,10 +345,10 @@ class UNet3DV2(nn.Module):
             # `n_blocks` at the same resolution
             current_channels = prev_channels
             for _ in range(n_blocks):
-                up.append(UpBlock(prev_channels, current_channels, n_internal_channels * 4, is_attn[i]))
+                up.append(UpBlock(prev_channels, current_channels, n_internal_channels * 4, is_attn[i], n_groups=self.n_groups))
             # Final block to reduce the number of channels
             current_channels = prev_channels // ch_mults[i]
-            up.append(UpBlock(prev_channels, current_channels, n_internal_channels * 4, is_attn[i]))
+            up.append(UpBlock(prev_channels, current_channels, n_internal_channels * 4, is_attn[i], n_groups=self.n_groups))
             prev_channels = current_channels
             # Up sample at all resolutions except last
             if i > 0:
@@ -353,7 +358,7 @@ class UNet3DV2(nn.Module):
         self.up = nn.ModuleList(up)
 
         # Final normalization and convolution layer
-        self.norm = nn.GroupNorm(8, n_internal_channels)
+        self.norm = nn.GroupNorm(self.n_groups, n_internal_channels)
         self.act = nn.SiLU()
         self.final = nn.Conv3d(prev_channels, out_channels, kernel_size=(3, 3, 3), padding=(1, 1, 1))
 
@@ -363,8 +368,7 @@ class UNet3DV2(nn.Module):
         * `t` has shape `[batch_size]`
         """
 
-        #maryam reshaping to -1, 1 
-        x = (x * 2) - 1
+
 
         # Get time-step embeddings
         t = self.time_emb(t)

@@ -1,3 +1,5 @@
+from datetime import datetime
+import random
 from tqdm import tqdm
 import torch
 from pharmacophore2mol.models.unet3d_v2.model import UNet3DV2
@@ -15,7 +17,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 def train(model, train_loader, optimizer, criterion, device, tb_logger=None):
     loop = tqdm(enumerate(train_loader), total=len(train_loader), desc="Training", unit="batch")
     model.train()
-    for batch_idx, (_, noised_mol_frag, added_noise, timestep) in loop:
+    for batch_idx, (_, _, noised_mol_frag, added_noise, timestep) in loop:
         noised_mol_frag = noised_mol_frag.to(device)
         added_noise = added_noise.to(device)
         timestep = timestep.to(device)
@@ -44,14 +46,25 @@ def evaluate(model, val_loader, criterion, device):
 if __name__ == "__main__":
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
     #logging and viz
-    writer = SummaryWriter(log_dir="runs/unet3d_v2_training")
+    writer = SummaryWriter(log_dir=f"runs/exp_at_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     # Define the dataset and dataloader
-    train_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=1000, transforms=[])
-    val_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=100, transforms=[])
-    sliced = train_dataset[0:4]
+    train_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=1000, transforms=[], return_clean=True)
+    val_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=100, transforms=[], return_clean=True)
+    example_batch = [train_dataset[i] for i in random.sample(range(len(train_dataset)), 16)]
+    #plot example_batch distribution
+    writer.add_histogram("example_batch/clean_mol_frag", torch.stack([x[0] for x in example_batch]), bins=1000, global_step=0)
+
+
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=8, persistent_workers=True)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=8, persistent_workers=True)
-    model = UNet3DV2(in_channels=3, out_channels=3, n_internal_channels=32, ch_mults=[1, 2, 2, 4], is_attn=[False, False, True, True], n_blocks=2)
+    model = UNet3DV2(in_channels=3,
+                    out_channels=3,
+                    n_internal_channels=32,
+                    ch_mults=[1, 2, 2, 4],
+                    is_attn=[False, False, True, True],
+                    n_blocks=2,
+                    n_groups=1
+                    )
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     loss = torch.nn.MSELoss()
@@ -60,6 +73,8 @@ if __name__ == "__main__":
 
         if (epoch + 1) % 5 == 0:
             evaluate(model, val_dataloader, loss, device)
+
+    writer.close()
         
 
 
