@@ -14,10 +14,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 
-def train(model, train_loader, optimizer, criterion, device, tb_logger=None):
-    loop = tqdm(enumerate(train_loader), total=len(train_loader), desc="Training", unit="batch")
+def train(model, train_loader, optimizer, criterion, epoch_n, device, tb_logger=None):
+    loop = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Training {epoch_n}/{N_EPOCHS}", unit="batch")
     model.train()
     for batch_idx, (_, _, noised_mol_frag, added_noise, timestep) in loop:
+        step = epoch_n * len(train_loader) + batch_idx
         noised_mol_frag = noised_mol_frag.to(device)
         added_noise = added_noise.to(device)
         timestep = timestep.to(device)
@@ -34,13 +35,32 @@ def train(model, train_loader, optimizer, criterion, device, tb_logger=None):
         loop.set_postfix(loss=loss.item())
         loop.refresh()
         if tb_logger:
-            tb_logger.add_scalar("train/loss", loss.item(), batch_idx + epoch * len(train_loader))
+            tb_logger.add_scalar("train/loss", loss.item(), step)
+            # if step % 100 == 0:
+                # tb_logger.add_video("train/noised_mol_frag", output
 
 
 
 
-def evaluate(model, val_loader, criterion, device):
-    ...
+def evaluate(model, val_loader, criterion, epoch_n, device, tb_logger=None):
+    loop = tqdm(enumerate(val_loader), total=len(val_loader), desc="Evaluating", unit="batch")
+    model.eval()
+    with torch.no_grad():
+        for batch_idx, (_, _, noised_mol_frag, added_noise, timestep) in loop:
+            noised_mol_frag = noised_mol_frag.to(device)
+            added_noise = added_noise.to(device)
+            timestep = timestep.to(device)
+
+            # Forward pass
+            output = model(noised_mol_frag, timestep)
+            # Compute loss
+            loss = criterion(output, added_noise)
+            # Update progress bar
+            loop.set_postfix(loss=loss.item())
+            loop.refresh()
+            if tb_logger:
+                tb_logger.add_scalar("val/loss", loss.item(), batch_idx + epoch_n * len(val_loader))
+
 
 
 if __name__ == "__main__":
@@ -69,10 +89,10 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     loss = torch.nn.MSELoss()
     for epoch in range(N_EPOCHS):
-        train(model, train_dataloader, optimizer, loss, device, tb_logger=writer)
+        train(model, train_dataloader, optimizer, loss, epoch, device, tb_logger=writer)
 
-        if (epoch + 1) % 5 == 0:
-            evaluate(model, val_dataloader, loss, device)
+        if (epoch + 1) % 1 == 0:
+            evaluate(model, val_dataloader, loss, epoch, device, tb_logger=writer)
 
     writer.close()
         

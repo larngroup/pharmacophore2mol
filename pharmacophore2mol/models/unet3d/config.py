@@ -21,7 +21,7 @@ config = {
     "side": 5,
     "stride": 1,
     "resolution": 0.2,
-    "channels": ["C", "H", "O"],#, "N", "S"],
+    "channels": ["C", "H", "O"],# "N", "S"],
     "pooling": "max",
     "std": 0.5,
     "mode": "gaussian",
