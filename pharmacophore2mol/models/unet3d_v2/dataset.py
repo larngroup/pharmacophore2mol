@@ -64,9 +64,13 @@ class NoisySubGridsDataset(SubGridsDataset):
         -------
         pharm_frag: torch.Tensor
             Voxel grid of the pharmacophore fragment (no noise).
-        mol_frag: torch.Tensor
+        mol_frag: torch.Tensor, Optional
+            Voxel grid of the molecule fragment (no noise). Only poresent if `return_clean` is True.
+        noisy_mol_frag: torch.Tensor
             Noised voxel grid of the molecule fragment.
-        timestep: torch.Tensor
+        added_noise: torch.Tensor
+            Noise that was added to the molecule fragment.
+        timestep: int
             Random timestep that was used for noise addition.
 
         """
@@ -81,6 +85,7 @@ class NoisySubGridsDataset(SubGridsDataset):
             added_noise = torch.randn_like(mol_frag)
             # Add noise to the molecule fragment
             noised_mol_frag = self.scheduler.add_noise(mol_frag.unsqueeze(0), added_noise.unsqueeze(0), timestep).squeeze(0)
+            added_noise = noised_mol_frag - mol_frag #@maryam this fixes that added noise not being scaled bug. i know that, performance wise, it may be slower, but this is cpu work so no concerns for now
             if self.return_clean:
                 # If return_clean is True, return the clean molecule fragment as well
                 return pharm_frag, mol_frag, noised_mol_frag, added_noise, timestep.item()
@@ -102,13 +107,18 @@ class NoisySubGridsDataset(SubGridsDataset):
 if __name__ == "__main__":
     # Example usage
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
+    from datetime import datetime as dt
+    from torch.utils.tensorboard import SummaryWriter
+    writer = SummaryWriter(log_dir=f"./runs/dataset_test_at_{dt.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=100, transforms=[])
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=True, num_workers=4, persistent_workers=True)
 
-    for pharm_frag, noised_mol_frag, timestep in dataloader:
+    for pharm_frag, noised_mol_frag, added_noise, timestep in dataloader:
         print(f"Pharmacophore fragment shape: {pharm_frag.shape}")
         print(f"Noised molecule fragment shape: {noised_mol_frag.shape}")
         print(f"Timestep: {timestep}")
+        writer.add_images("Noised Molecule Fragments", noised_mol_frag, global_step=0)
+        break
         
 
 
