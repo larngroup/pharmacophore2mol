@@ -23,17 +23,17 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
 @dataclass
 class TrainingConfig:
-    image_size = 128
-    train_batch_size = 8
-    eval_batch_size = 1
-    num_epochs = 50
+    image_size = 32
+    train_batch_size = 32
+    eval_batch_size = 16
+    num_epochs = 500
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
     lr_warmup_steps = 500
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-butterflies-128"
+    output_dir = "./saves/ddpm-butterflies_no_norm-32"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -63,7 +63,7 @@ preprocess = transforms.Compose(
         transforms.Resize((config.image_size, config.image_size)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]),
+        # transforms.Normalize([0.5], [0.5]),
     ]
 )
 
@@ -151,7 +151,7 @@ def evaluate(config, epoch, pipeline):
     ).images
 
     #Make agrid of the images
-    image_grid = make_image_grid(images, rows=2, cols=4)
+    image_grid = make_image_grid(images, rows=4, cols=4)
 
     #save the images
     test_dir = os.path.join(config.output_dir, "samples")

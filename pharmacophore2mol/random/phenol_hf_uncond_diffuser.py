@@ -15,9 +15,35 @@ from accelerate import Accelerator
 from huggingface_hub import create_repo, upload_folder
 from tqdm.auto import tqdm
 from pathlib import Path
-from accelerate import notebook_launcher
-from torchvision.transforms.functional import to_pil_image
+from torch.utils.data import Dataset
 
+
+
+from pharmacophore2mol.models.unet3d.dataset import SubGridsDataset
+import pharmacophore2mol as p2m
+
+
+class UncondPhenolSliceDataset(Dataset):
+    """
+    Does the same as SubGridsDataset, but just returns the first 2D Slice of a Phenol (cause it's planar)
+    """
+
+    def __init__(self):
+        self.dataset = SubGridsDataset(
+            mols_filepath=p2m.RAW_DATA_DIR / "original_phenol.sdf",
+            padding=0,
+            transforms=None,
+            force_len= 32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
+        )
+
+
+    def __getitem__(self, idx):
+        pharm_frag, mol_frag = self.dataset[idx]
+
+        mol_slice = mol_frag[:, :, :, 0].squeeze(-1) #C, H, W, D
+        return mol_slice
+    def __len__(self):
+        return len(self.dataset)
 
 os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
@@ -25,17 +51,17 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
 @dataclass
 class TrainingConfig:
-    image_size = 128
-    train_batch_size = 8
-    eval_batch_size = 8
-    num_epochs = 50
+    image_size = 32
+    train_batch_size = 32
+    eval_batch_size = 16
+    num_epochs = 500
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
     lr_warmup_steps = 500
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-butterflies-128"
+    output_dir = "./saves/ddpm-phenol_no_aug-32"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -46,8 +72,9 @@ config = TrainingConfig()
 
 # Load the dataset
 
-config.dataset_name = "huggan/smithsonian_butterflies_subset"
-dataset = load_dataset(config.dataset_name, split="train")
+dataset = UncondPhenolSliceDataset()
+# config.dataset_name = "huggan/smithsonian_butterflies_subset"
+# dataset = load_dataset(config.dataset_name, split="train")
 
 
 
@@ -60,21 +87,23 @@ dataset = load_dataset(config.dataset_name, split="train")
 # plt.show()
 
 
-preprocess = transforms.Compose(
-    [
-        transforms.Resize((config.image_size, config.image_size)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5]),
-    ]
-)
+# preprocess = transforms.Compose( #TODO: IS THIS NORMALIZE USEFUL?
+#     [
+#         transforms.Resize((config.image_size, config.image_size)),
+#         transforms.RandomHorizontalFlip(),
+#         transforms.ToTensor(),
+#         transforms.Normalize([0.5], [0.5]),
+#     ]
+# )
 
-def transform(examples):
-    images = [preprocess(image.convert("RGB")) for image in examples["image"]]
-    return {"images": images}
+# def transform(examples):
+#     # images = [preprocess(image.convert("RGB")) for image in examples["image"]]
+#     images = [preprocess(image) for image in examples["image"]]
+#     # images = [image for image in examples["image"]]
+#     return {"images": images}
 
 
-dataset.set_transform(transform)
+# dataset.set_transform(transform)
 
 
 #visualize the dataset
@@ -90,6 +119,10 @@ dataset.set_transform(transform)
 
 train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.train_batch_size, shuffle=True)
 
+
+# for i in train_dataloader:
+#     print(i.shape)
+#     exit()
 
 model = UNet2DModel(
     sample_size=config.image_size,
@@ -116,9 +149,13 @@ model = UNet2DModel(
 )
 
 
-sample_image = dataset[0]["images"].unsqueeze(0)  # Add batch dimension
+sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
 print("Input shape:", sample_image.shape)
 print("Output shape:", model(sample_image, timestep=0).sample.shape)
+plt.imshow(sample_image[0].cpu().numpy().transpose(1, 2, 0))
+plt.title("Sample Image")
+plt.axis("off")
+plt.show()
 
 noise_scheduler = DDPMScheduler(num_train_timesteps=1000)
 noise = torch.randn(sample_image.shape)
@@ -153,7 +190,7 @@ def evaluate(config, epoch, pipeline):
     ).images
 
     #Make agrid of the images
-    image_grid = make_image_grid(images, rows=2, cols=4)
+    image_grid = make_image_grid(images, rows=4, cols=4)
 
     #save the images
     test_dir = os.path.join(config.output_dir, "samples")
@@ -194,20 +231,10 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
         progress_bar = tqdm(total=len(train_dataloader), disable=not accelerator.is_local_main_process)
         progress_bar.set_description(f"Epoch {epoch}")
 
-        print_stats = True
+
         for step, batch in enumerate(train_dataloader):
-            if print_stats and  (step / len(train_dataloader)) > 0.1:
-                print_stats = False
-                print(step)
-                print(batch["images"][0][0][63])
-                # Convert batch["images"] to a list of PIL RGB images
-                def denormalize(tensor):
-                    return (tensor * 0.5 + 0.5).clamp(0, 1)
-                pil_images = [to_pil_image(denormalize(image), mode="RGB") for image in batch["images"]]
-                image_grid = make_image_grid(pil_images, rows=2, cols=4)
-                statsdir = os.path.join(config.output_dir, "stats")
-                image_grid.save(f"{statsdir}/train_batch_{epoch}_{step}.png")  
-            clean_images = batch["images"]
+            
+            clean_images = batch
             # Sample noise to add to the images
             noise = torch.randn(clean_images.shape, device=clean_images.device)
             bs = clean_images.shape[0]
@@ -260,7 +287,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
 
 
-
+from accelerate import notebook_launcher
 args = (config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
 notebook_launcher(train_loop, args=args, num_processes=1)
 
