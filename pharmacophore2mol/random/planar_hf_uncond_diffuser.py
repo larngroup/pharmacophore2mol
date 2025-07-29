@@ -31,13 +31,13 @@ class UncondPhenolSliceDataset(Dataset):
 
     def __init__(self):
         self.dataset = SubGridsDataset(
-            mols_filepath=p2m.RAW_DATA_DIR / "original_phenol.sdf",
+            mols_filepath=p2m.RAW_DATA_DIR / "small_planar.sdf",
             padding=0,
             transforms=[
                 RandomFlipMolTransform(planes=(True, True, False)),
                 RandomRotateMolTransform(angles=(0, 0, 359)),
             ],
-            force_len= 32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
+            force_len=32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
         )
 
 
@@ -67,7 +67,7 @@ class TrainingConfig:
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-phenol_aug_norm-32"
+    output_dir = "./saves/ddpm-planar_aug_norm-32"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -158,7 +158,7 @@ model = UNet2DModel(
 sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
 print("Input shape:", sample_image.shape)
 print("Output shape:", model(sample_image, timestep=0).sample.shape)
-plt.imshow(sample_image[0].cpu().numpy().transpose(1, 2, 0))
+plt.imshow(sample_image[0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
 plt.title("Sample Image")
 plt.axis("off")
 plt.show()
