@@ -38,8 +38,10 @@ class UncondPhenolSliceDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        pharm_frag, mol_frag = self.dataset[idx]
+        _, mol_frag = self.dataset[idx]
 
+
+        mol_frag = transforms.Normalize(0.5, 0.5)(mol_frag)  # Normalize to [-1, 1] (essentially a rescale). if this is not done, images get foggy, maybe because activation function range is not being fully utilized (hypothetical)
         mol_slice = mol_frag[:, :, :, 0].squeeze(-1) #C, H, W, D
         return mol_slice
     def __len__(self):
@@ -61,7 +63,7 @@ class TrainingConfig:
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-phenol_no_aug-32"
+    output_dir = "./saves/ddpm-phenol_no_aug_norm-32"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False

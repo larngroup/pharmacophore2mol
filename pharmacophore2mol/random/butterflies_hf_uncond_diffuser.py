@@ -15,13 +15,13 @@ from accelerate import Accelerator
 from huggingface_hub import create_repo, upload_folder
 from tqdm.auto import tqdm
 from pathlib import Path
+from time import time
+from accelerate import notebook_launcher
 
 
 os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
-
-
-@dataclass
+# time_tag = -int(time.time())
 class TrainingConfig:
     image_size = 32
     train_batch_size = 32
@@ -33,7 +33,7 @@ class TrainingConfig:
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-butterflies_no_norm-32"
+    output_dir = f"./saves/ddpm-butterflies_no_norm-32"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -248,7 +248,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
 
 
-from accelerate import notebook_launcher
 args = (config, model, noise_scheduler, optimizer, train_dataloader, lr_scheduler)
 notebook_launcher(train_loop, args=args, num_processes=1)
 
