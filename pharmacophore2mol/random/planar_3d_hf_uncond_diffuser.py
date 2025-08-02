@@ -5,11 +5,11 @@ from datasets import load_dataset
 import matplotlib.pyplot as plt
 from torchvision import transforms
 import torch
-from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, UNet3DConditionModel #TODO:a 3d model seems to exist, but i got to check wether there's any resize happening in the residual connections
+from local_diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, UNet3DConditionModel #NOTE: the 3d model that they implement is actually 2D + 1D (temporal), so it is actually for video
 from PIL import Image
 import torch.nn.functional as F
-from diffusers.optimization import get_cosine_schedule_with_warmup
-from diffusers.utils import make_image_grid
+from local_diffusers.optimization import get_cosine_schedule_with_warmup
+from local_diffusers.utils import make_image_grid
 import os
 from accelerate import Accelerator
 from huggingface_hub import create_repo, upload_folder
@@ -46,8 +46,8 @@ class UncondDataset(Dataset):
 
 
         mol_frag = transforms.Normalize(0.5, 0.5)(mol_frag)  # Normalize to [-1, 1] (essentially a rescale). if this is not done, images get foggy, maybe because activation function range is not being fully utilized (hypothetical)
-        # mol_slice = mol_frag[:, :, :, 0].squeeze(-1) #C, H, W, D
-        return mol_frag
+        mol_slice = mol_frag[:, :, :, 0].squeeze(-1) #C, H, W, D
+        return mol_slice
     def __len__(self):
         return len(self.dataset)
 
@@ -130,29 +130,29 @@ train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.train_
 #     print(i.shape)
 #     exit()
 
-# model = UNet2DModel(
-#     sample_size=config.image_size,
-#     in_channels=3,
-#     out_channels=3,
-#     layers_per_block=2,
-#     block_out_channels=[128, 128, 256, 256, 512, 512],
-#     down_block_types=(
-#         "DownBlock2D",
-#         "DownBlock2D",
-#         "DownBlock2D",
-#         "DownBlock2D",
-#         "AttnDownBlock2D",
-#         "DownBlock2D",
-#     ),
-#     up_block_types=(
-#         "UpBlock2D",
-#         "AttnUpBlock2D",
-#         "UpBlock2D",
-#         "UpBlock2D",
-#         "UpBlock2D",
-#         "UpBlock2D",
-#     ),
-# )
+model = UNet2DModel(
+    sample_size=config.image_size,
+    in_channels=3,
+    out_channels=3,
+    layers_per_block=2,
+    block_out_channels=[128, 128, 256, 256, 512, 512],
+    down_block_types=(
+        "DownBlock2D",
+        "DownBlock2D",
+        "DownBlock2D",
+        "DownBlock2D",
+        "AttnDownBlock2D",
+        "DownBlock2D",
+    ),
+    up_block_types=(
+        "UpBlock2D",
+        "AttnUpBlock2D",
+        "UpBlock2D",
+        "UpBlock2D",
+        "UpBlock2D",
+        "UpBlock2D",
+    ),
+)
 
 
 sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
