@@ -74,6 +74,12 @@ LOADABLE_CLASSES = {
         "DiffusionPipeline": ["save_pretrained", "from_pretrained"],
         "OnnxRuntimeModel": ["save_pretrained", "from_pretrained"],
     },
+    "local_diffusers": {
+        "ModelMixin": ["save_pretrained", "from_pretrained"],
+        "SchedulerMixin": ["save_pretrained", "from_pretrained"],
+        "DiffusionPipeline": ["save_pretrained", "from_pretrained"],
+        "OnnxRuntimeModel": ["save_pretrained", "from_pretrained"],
+    },
     "transformers": {
         "PreTrainedTokenizer": ["save_pretrained", "from_pretrained"],
         "PreTrainedTokenizerFast": ["save_pretrained", "from_pretrained"],

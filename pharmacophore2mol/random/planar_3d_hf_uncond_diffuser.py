@@ -5,7 +5,8 @@ from datasets import load_dataset
 import matplotlib.pyplot as plt
 from torchvision import transforms
 import torch
-from local_diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, UNet3DConditionModel #NOTE: the 3d model that they implement is actually 2D + 1D (temporal), so it is actually for video
+from local_diffusers import DDPMPipeline, DDPMScheduler #NOTE: the 3d model that they implement is actually 2D + 1D (temporal), so it is actually for video
+from local_diffusers import UNet3DModel, UNet2DModel #local version of the model that supports 3D convolutions
 from PIL import Image
 import torch.nn.functional as F
 from local_diffusers.optimization import get_cosine_schedule_with_warmup
@@ -130,27 +131,27 @@ train_dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.train_
 #     print(i.shape)
 #     exit()
 
-model = UNet2DModel(
+model = UNet3DModel(
     sample_size=config.image_size,
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
     block_out_channels=[128, 128, 256, 256, 512, 512],
     down_block_types=(
-        "DownBlock2D",
-        "DownBlock2D",
-        "DownBlock2D",
-        "DownBlock2D",
-        "AttnDownBlock2D",
-        "DownBlock2D",
+        "DownBlock3D",
+        "DownBlock3D",
+        "DownBlock3D",
+        "DownBlock3D",
+        "AttnDownBlock3D",
+        "DownBlock3D",
     ),
     up_block_types=(
-        "UpBlock2D",
-        "AttnUpBlock2D",
-        "UpBlock2D",
-        "UpBlock2D",
-        "UpBlock2D",
-        "UpBlock2D",
+        "UpBlock3D",
+        "AttnUpBlock3D",
+        "UpBlock3D",
+        "UpBlock3D",
+        "UpBlock3D",
+        "UpBlock3D",
     ),
 )
 

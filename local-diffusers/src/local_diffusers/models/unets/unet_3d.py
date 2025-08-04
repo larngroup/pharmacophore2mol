@@ -8,7 +8,7 @@ from ...configuration_utils import ConfigMixin, register_to_config
 from ...utils import BaseOutput
 from ..embeddings import GaussianFourierProjection, TimestepEmbedding, Timesteps
 from ..modeling_utils import ModelMixin
-from .unet_2d_blocks import UNetMidBlock2D, get_down_block, get_up_block
+from .unet_3d_blocks import UNetMidBlock3D, get_down_block, get_up_block
 
 
 @dataclass
@@ -90,10 +90,10 @@ class UNet3DModel(ModelMixin, ConfigMixin):
         time_embedding_dim: Optional[int] = None,
         freq_shift: int = 0,
         flip_sin_to_cos: bool = True,
-        down_block_types: Tuple[str, ...] = ("DownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D", "AttnDownBlock2D"),
-        mid_block_type: Optional[str] = "UNetMidBlock2D",
-        up_block_types: Tuple[str, ...] = ("AttnUpBlock2D", "AttnUpBlock2D", "AttnUpBlock2D", "UpBlock2D"),
-        block_out_channels: Tuple[int, ...] = (224, 448, 672, 896),
+        down_block_types: Tuple[str, ...] = ("DownBlock3D", "AttnDownBlock3D", "AttnDownBlock3D", "AttnDownBlock3D"),
+        mid_block_type: Optional[str] = "UNetMidBlock3D",
+        up_block_types: Tuple[str, ...] = ("AttnUpBlock3D", "AttnUpBlock3D", "AttnUpBlock3D", "UpBlock3D"),
+        block_out_channels: Tuple[int, ...] = (224, 448, 672, 896), #TODO: on conditional unet 2d and 3d default dimensions are (320, 640, 1280, 1280)
         layers_per_block: int = 2,
         mid_block_scale_factor: float = 1,
         downsample_padding: int = 1,
@@ -128,6 +128,7 @@ class UNet3DModel(ModelMixin, ConfigMixin):
             )
 
         # input
+        # self.conv_in = nn.Conv3d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1, 1))
         self.conv_in = nn.Conv2d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1))
 
         # time
@@ -186,7 +187,7 @@ class UNet3DModel(ModelMixin, ConfigMixin):
         if mid_block_type is None:
             self.mid_block = None
         else:
-            self.mid_block = UNetMidBlock2D(
+            self.mid_block = UNetMidBlock3D(
                 in_channels=block_out_channels[-1],
                 temb_channels=time_embed_dim,
                 dropout=dropout,
@@ -232,6 +233,7 @@ class UNet3DModel(ModelMixin, ConfigMixin):
         num_groups_out = norm_num_groups if norm_num_groups is not None else min(block_out_channels[0] // 4, 32)
         self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=num_groups_out, eps=norm_eps)
         self.conv_act = nn.SiLU()
+        # self.conv_out = nn.Conv3d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
 
     def forward(
@@ -240,22 +242,22 @@ class UNet3DModel(ModelMixin, ConfigMixin):
         timestep: Union[torch.Tensor, float, int],
         class_labels: Optional[torch.Tensor] = None,
         return_dict: bool = True,
-    ) -> Union[UNet2DOutput, Tuple]:
+    ) -> Union[UNet3DOutput, Tuple]:
         r"""
-        The [`UNet2DModel`] forward method.
+        The [`UNet3DModel`] forward method.
 
         Args:
             sample (`torch.Tensor`):
-                The noisy input tensor with the following shape `(batch, channel, height, width)`.
+                The noisy input tensor with the following shape `(batch, channel, depth, height, width)`.
             timestep (`torch.Tensor` or `float` or `int`): The number of timesteps to denoise an input.
             class_labels (`torch.Tensor`, *optional*, defaults to `None`):
                 Optional class labels for conditioning. Their embeddings will be summed with the timestep embeddings.
             return_dict (`bool`, *optional*, defaults to `True`):
-                Whether or not to return a [`~models.unets.unet_2d.UNet2DOutput`] instead of a plain tuple.
+                Whether or not to return a [`~models.unets.unet_3d.UNet3DOutput`] instead of a plain tuple.
 
         Returns:
-            [`~models.unets.unet_2d.UNet2DOutput`] or `tuple`:
-                If `return_dict` is True, an [`~models.unets.unet_2d.UNet2DOutput`] is returned, otherwise a `tuple` is
+            [`~models.unets.unet_3d.UNet3DOutput`] or `tuple`:
+                If `return_dict` is True, an [`~models.unets.unet_3d.UNet3DOutput`] is returned, otherwise a `tuple` is
                 returned where the first element is the sample tensor.
         """
         # 0. center input if necessary
@@ -338,5 +340,5 @@ class UNet3DModel(ModelMixin, ConfigMixin):
         if not return_dict:
             return (sample,)
 
-        return UNet2DOutput(sample=sample)
+        return UNet3DOutput(sample=sample)
     
