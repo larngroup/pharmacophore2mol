@@ -196,18 +196,18 @@ class Downsample3D(nn.Module):
             raise ValueError(f"unknown norm_type: {norm_type}")
 
         if use_conv:
-            conv = nn.Conv2d(
+            conv = nn.Conv3d(
                 self.channels, self.out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias
             )
         else:
             assert self.channels == self.out_channels
-            conv = nn.AvgPool2d(kernel_size=stride, stride=stride)
+            conv = nn.AvgPool3d(kernel_size=stride, stride=stride)
 
         # TODO(Suraj, Patrick) - clean up after weight dicts are correctly renamed
         if name == "conv":
-            self.Conv2d_0 = conv
+            self.Conv3d_0 = conv
             self.conv = conv
-        elif name == "Conv2d_0":
+        elif name == "Conv3d_0":
             self.conv = conv
         else:
             self.conv = conv
@@ -219,10 +219,10 @@ class Downsample3D(nn.Module):
         assert hidden_states.shape[1] == self.channels
 
         if self.norm is not None:
-            hidden_states = self.norm(hidden_states.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+            hidden_states = self.norm(hidden_states.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3)
 
         if self.use_conv and self.padding == 0:
-            pad = (0, 1, 0, 1)
+            pad = (0, 1, 0, 1, 0, 1)  # Pad depth, height, width: (D_left, D_right, H_left, H_right, W_left, W_right)
             hidden_states = F.pad(hidden_states, pad, mode="constant", value=0)
 
         assert hidden_states.shape[1] == self.channels

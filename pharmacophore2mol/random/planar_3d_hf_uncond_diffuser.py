@@ -37,6 +37,8 @@ class UncondDataset(Dataset):
             transforms=[
                 RandomFlipMolTransform(planes=(True, True, False)),
                 RandomRotateMolTransform(angles=(0, 0, 359)),
+                # RandomFlipMolTransform(planes=(True, True, True)),
+                # RandomRotateMolTransform(angles=(359, 359, 359)),
             ],
             force_len=32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
         )
@@ -47,8 +49,8 @@ class UncondDataset(Dataset):
 
 
         mol_frag = transforms.Normalize(0.5, 0.5)(mol_frag)  # Normalize to [-1, 1] (essentially a rescale). if this is not done, images get foggy, maybe because activation function range is not being fully utilized (hypothetical)
-        mol_slice = mol_frag[:, :, :, 0].squeeze(-1) #C, H, W, D
-        return mol_slice
+        # mol_slice = mol_frag[:, :, :, 0].squeeze(-1) #C, H, W, D
+        return mol_frag#.permute(2, 0, 1)  # Change from (C, H, W) to (H, W, C) for visualization purposes
     def __len__(self):
         return len(self.dataset)
 
@@ -59,7 +61,7 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 32
+    train_batch_size = 16
     eval_batch_size = 16
     num_epochs = 500
     gradient_accumulation_steps = 1
@@ -159,7 +161,7 @@ model = UNet3DModel(
 sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
 print("Input shape:", sample_image.shape)
 print("Output shape:", model(sample_image, timestep=0).sample.shape)
-plt.imshow(sample_image[0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
+plt.imshow(sample_image[0, :, :, :, 0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
 plt.title("Sample Image")
 plt.axis("off")
 plt.show()

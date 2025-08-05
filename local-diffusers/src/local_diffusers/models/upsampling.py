@@ -244,19 +244,19 @@ class Upsample3D(nn.Module):
         if use_conv_transpose:
             if kernel_size is None:
                 kernel_size = 4
-            conv = nn.ConvTranspose2d(
+            conv = nn.ConvTranspose3d(
                 channels, self.out_channels, kernel_size=kernel_size, stride=2, padding=padding, bias=bias
             )
         elif use_conv:
             if kernel_size is None:
                 kernel_size = 3
-            conv = nn.Conv2d(self.channels, self.out_channels, kernel_size=kernel_size, padding=padding, bias=bias)
+            conv = nn.Conv3d(self.channels, self.out_channels, kernel_size=kernel_size, padding=padding, bias=bias)
 
         # TODO(Suraj, Patrick) - clean up after weight dicts are correctly renamed
         if name == "conv":
             self.conv = conv
         else:
-            self.Conv2d_0 = conv
+            self.Conv3d_0 = conv
 
     def forward(self, hidden_states: torch.Tensor, output_size: Optional[int] = None, *args, **kwargs) -> torch.Tensor:
         if len(args) > 0 or kwargs.get("scale", None) is not None:
@@ -266,7 +266,7 @@ class Upsample3D(nn.Module):
         assert hidden_states.shape[1] == self.channels
 
         if self.norm is not None:
-            hidden_states = self.norm(hidden_states.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+            hidden_states = self.norm(hidden_states.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3)
 
         if self.use_conv_transpose:
             return self.conv(hidden_states)
@@ -287,15 +287,15 @@ class Upsample3D(nn.Module):
             # upsample_nearest_nhwc also fails when the number of output elements is large
             # https://github.com/pytorch/pytorch/issues/141831
             scale_factor = (
-                2 if output_size is None else max([f / s for f, s in zip(output_size, hidden_states.shape[-2:])])
+                2 if output_size is None else max([f / s for f, s in zip(output_size, hidden_states.shape[-3:])])
             )
             if hidden_states.numel() * scale_factor > pow(2, 31):
                 hidden_states = hidden_states.contiguous()
 
             if output_size is None:
-                hidden_states = F.interpolate(hidden_states, scale_factor=2.0, mode="nearest")
+                hidden_states = F.interpolate(hidden_states, scale_factor=2.0, mode="nearest") #TODO: here could use trilinear instead of nearest for 3D
             else:
-                hidden_states = F.interpolate(hidden_states, size=output_size, mode="nearest")
+                hidden_states = F.interpolate(hidden_states, size=output_size, mode="nearest") #TODO: here could use trilinear instead of nearest for 3D
 
         # Cast back to original dtype
         if dtype == torch.bfloat16 and is_torch_version("<", "2.1"):
@@ -306,7 +306,7 @@ class Upsample3D(nn.Module):
             if self.name == "conv":
                 hidden_states = self.conv(hidden_states)
             else:
-                hidden_states = self.Conv2d_0(hidden_states)
+                hidden_states = self.Conv3d_0(hidden_states)
 
         return hidden_states
 

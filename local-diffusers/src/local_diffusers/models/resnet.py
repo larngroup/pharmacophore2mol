@@ -426,7 +426,7 @@ class ResnetBlock3D(nn.Module):
         up: bool = False,
         down: bool = False,
         conv_shortcut_bias: bool = True,
-        conv_2d_out_channels: Optional[int] = None,
+        conv_3d_out_channels: Optional[int] = None,
     ):
         super().__init__()
         if time_embedding_norm == "ada_group":
@@ -454,7 +454,7 @@ class ResnetBlock3D(nn.Module):
 
         self.norm1 = torch.nn.GroupNorm(num_groups=groups, num_channels=in_channels, eps=eps, affine=True)
 
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv3d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
         if temb_channels is not None:
             if self.time_embedding_norm == "default":
@@ -469,8 +469,8 @@ class ResnetBlock3D(nn.Module):
         self.norm2 = torch.nn.GroupNorm(num_groups=groups_out, num_channels=out_channels, eps=eps, affine=True)
 
         self.dropout = torch.nn.Dropout(dropout)
-        conv_2d_out_channels = conv_2d_out_channels or out_channels
-        self.conv2 = nn.Conv2d(out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1)
+        conv_3d_out_channels = conv_3d_out_channels or out_channels
+        self.conv2 = nn.Conv3d(out_channels, conv_3d_out_channels, kernel_size=3, stride=1, padding=1)
 
         self.nonlinearity = get_activation(non_linearity)
 
@@ -494,13 +494,13 @@ class ResnetBlock3D(nn.Module):
             else:
                 self.downsample = Downsample3D(in_channels, use_conv=False, padding=1, name="op")
 
-        self.use_in_shortcut = self.in_channels != conv_2d_out_channels if use_in_shortcut is None else use_in_shortcut
+        self.use_in_shortcut = self.in_channels != conv_3d_out_channels if use_in_shortcut is None else use_in_shortcut
 
         self.conv_shortcut = None
         if self.use_in_shortcut:
-            self.conv_shortcut = nn.Conv2d(
+            self.conv_shortcut = nn.Conv3d(
                 in_channels,
-                conv_2d_out_channels,
+                conv_3d_out_channels,
                 kernel_size=1,
                 stride=1,
                 padding=0,
@@ -533,7 +533,7 @@ class ResnetBlock3D(nn.Module):
         if self.time_emb_proj is not None:
             if not self.skip_time_act:
                 temb = self.nonlinearity(temb)
-            temb = self.time_emb_proj(temb)[:, :, None, None]
+            temb = self.time_emb_proj(temb)[:, :, None, None, None]
 
         if self.time_embedding_norm == "default":
             if temb is not None:
