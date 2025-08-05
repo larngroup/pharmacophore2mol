@@ -5,7 +5,7 @@ from datasets import load_dataset
 import matplotlib.pyplot as plt
 from torchvision import transforms
 import torch
-from local_diffusers import DDPMPipeline, DDPMScheduler #NOTE: the 3d model that they implement is actually 2D + 1D (temporal), so it is actually for video
+from local_diffusers import DDPMPipeline3D, DDPMScheduler #NOTE: the 3d model that they implement is actually 2D + 1D (temporal), so it is actually for video
 from local_diffusers import UNet3DModel, UNet2DModel #local version of the model that supports 3D convolutions
 from PIL import Image
 import torch.nn.functional as F
@@ -67,10 +67,10 @@ class TrainingConfig:
     gradient_accumulation_steps = 1
     learning_rate = 1e-4
     lr_warmup_steps = 500
-    save_image_epochs = 10
+    save_image_epochs = 20
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_aug_norm-32"
+    output_dir = "./saves/ddpm-planar_3d_aug_norm-reduced"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -139,7 +139,8 @@ model = UNet3DModel(
     out_channels=3,
     layers_per_block=2,
     # block_out_channels=[128, 128, 256, 256, 512, 512],
-    block_out_channels=[64, 128, 128, 256, 256, 512],
+    # block_out_channels=[64, 128, 128, 256, 256, 512],
+    block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
         "DownBlock3D",
         "DownBlock3D",
@@ -280,7 +281,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
         # After each epoch you optionally sample some demo images with evaluate() and save the model
         if accelerator.is_main_process:
-            pipeline = DDPMPipeline(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
+            pipeline = DDPMPipeline3D(unet=accelerator.unwrap_model(model), scheduler=noise_scheduler)
 
             if (epoch + 1) % config.save_image_epochs == 0 or epoch == config.num_epochs - 1:
                 evaluate(config, epoch, pipeline)

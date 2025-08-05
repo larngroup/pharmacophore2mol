@@ -50,7 +50,7 @@ else:
     _import_structure["consistency_models"] = ["ConsistencyModelPipeline"]
     _import_structure["dance_diffusion"] = ["DanceDiffusionPipeline"]
     _import_structure["ddim"] = ["DDIMPipeline"]
-    _import_structure["ddpm"] = ["DDPMPipeline"]
+    _import_structure["ddpm"] = ["DDPMPipeline", "DDPMPipeline3D"]
     _import_structure["dit"] = ["DiTPipeline"]
     _import_structure["latent_diffusion"].extend(["LDMSuperResolutionPipeline"])
     _import_structure["pipeline_utils"] = [
@@ -503,7 +503,7 @@ if TYPE_CHECKING or DIFFUSERS_SLOW_IMPORT:
         from .consistency_models import ConsistencyModelPipeline
         from .dance_diffusion import DanceDiffusionPipeline
         from .ddim import DDIMPipeline
-        from .ddpm import DDPMPipeline
+        from .ddpm import DDPMPipeline, DDPMPipeline3D
         from .deprecated import KarrasVePipeline, LDMPipeline, PNDMPipeline, RePaintPipeline, ScoreSdeVePipeline
         from .dit import DiTPipeline
         from .latent_diffusion import LDMSuperResolutionPipeline
