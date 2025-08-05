@@ -138,8 +138,8 @@ model = UNet3DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    # block_out_channels=[128, 128, 256, 256, 512, 512],
-    block_out_channels=[64, 128, 128, 256, 256, 512],
+    block_out_channels=[128, 128, 256, 256, 512, 512],
+    # block_out_channels=[64, 128, 128, 256, 256, 512],
     # block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
         "DownBlock3D",
