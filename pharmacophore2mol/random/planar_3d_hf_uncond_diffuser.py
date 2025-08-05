@@ -65,7 +65,7 @@ class TrainingConfig:
     eval_batch_size = 16
     num_epochs = 50000
     gradient_accumulation_steps = 2
-    learning_rate = 2e-4
+    learning_rate = 2e-4 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
     save_image_epochs = 20
     save_model_epochs = 30
