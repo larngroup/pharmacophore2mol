@@ -61,16 +61,16 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 12
+    train_batch_size = 8
     eval_batch_size = 16
     num_epochs = 50000
-    gradient_accumulation_steps = 1
+    gradient_accumulation_steps = 2
     learning_rate = 2e-4
     lr_warmup_steps = 500
     save_image_epochs = 20
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_aug_norm-reduced"
+    output_dir = "./saves/ddpm-planar_3d_aug_norm_grad_acum"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
