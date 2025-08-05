@@ -61,10 +61,10 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 8
+    train_batch_size = 4
     eval_batch_size = 16
     num_epochs = 50000
-    gradient_accumulation_steps = 2
+    gradient_accumulation_steps = 4
     learning_rate = 2e-4 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
     save_image_epochs = 20
