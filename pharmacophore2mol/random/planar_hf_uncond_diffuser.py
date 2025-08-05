@@ -58,7 +58,7 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 8
+    train_batch_size = 16
     eval_batch_size = 16
     num_epochs = 500
     gradient_accumulation_steps = 1
@@ -67,7 +67,7 @@ class TrainingConfig:
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_aug_norm_reduced"
+    output_dir = "./saves/ddpm-planar_aug_norm_very_reduced"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -136,7 +136,8 @@ model = UNet2DModel(
     out_channels=3,
     layers_per_block=2,
     # block_out_channels=[128, 128, 256, 256, 512, 512],
-    block_out_channels=[64, 128, 128, 256, 256, 512],
+    # block_out_channels=[64, 128, 128, 256, 256, 512],
+    block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
         "DownBlock2D",
         "DownBlock2D",
