@@ -58,16 +58,16 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 16
+    train_batch_size = 4
     eval_batch_size = 16
-    num_epochs = 500
-    gradient_accumulation_steps = 1
+    num_epochs = 50
+    gradient_accumulation_steps = 4
     learning_rate = 1e-4
     lr_warmup_steps = 500
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_aug_norm_very_reduced"
+    output_dir = "./saves/ddpm-planar_aug_norm_grad_acum"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -135,9 +135,9 @@ model = UNet2DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    # block_out_channels=[128, 128, 256, 256, 512, 512],
+    block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
-    block_out_channels=[64, 64, 128, 128, 256, 256],
+    # block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
         "DownBlock2D",
         "DownBlock2D",
@@ -179,12 +179,12 @@ noise_pred = model(noisy_image, timesteps).sample
 loss = F.mse_loss(noise_pred, noise)
 
 
-
+print(len(train_dataloader) * config.num_epochs)
 optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 lr_scheduler = get_cosine_schedule_with_warmup(
     optimizer=optimizer,
     num_warmup_steps=config.lr_warmup_steps,
-    num_training_steps=len(train_dataloader) * config.num_epochs,
+    num_training_steps=(len(train_dataloader) * config.num_epochs) // config.gradient_accumulation_steps,  # Adjusted for gradient accumulation. there's a bug i believe: as the lr_scheduler.step() appears to also, be wrapped by acumulate(), the steps should be reduced accordingly, or else it will update n times slower, not allowing finetuning
 )
 
 
