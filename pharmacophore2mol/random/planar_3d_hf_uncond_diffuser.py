@@ -63,7 +63,7 @@ class TrainingConfig:
     image_size = 32
     train_batch_size = 4
     eval_batch_size = 16
-    num_epochs = 50
+    num_epochs = 100
     gradient_accumulation_steps = 4
     learning_rate = 1e-4 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
@@ -187,7 +187,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 lr_scheduler = get_cosine_schedule_with_warmup(
     optimizer=optimizer,
     num_warmup_steps=config.lr_warmup_steps,
-    num_training_steps=len(train_dataloader) * config.num_epochs,
+    num_training_steps=(len(train_dataloader) * config.num_epochs) // config.gradient_accumulation_steps,  # Adjusted for gradient accumulation. there's a bug i believe: as the lr_scheduler.step() appears to also, be wrapped by acumulate(), the steps should be reduced accordingly, or else it will update n times slower, not allowing finetuning
 )
 
 
