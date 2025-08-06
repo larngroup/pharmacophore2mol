@@ -35,10 +35,10 @@ class UncondDataset(Dataset):
             mols_filepath=p2m.RAW_DATA_DIR / "small_planar.sdf",
             padding=0,
             transforms=[
-                RandomFlipMolTransform(planes=(True, True, False)),
-                RandomRotateMolTransform(angles=(0, 0, 359)),
-                # RandomFlipMolTransform(planes=(True, True, True)),
-                # RandomRotateMolTransform(angles=(359, 359, 359)),
+                # RandomFlipMolTransform(planes=(True, True, False)),
+                # RandomRotateMolTransform(angles=(0, 0, 359)),
+                RandomFlipMolTransform(planes=(True, True, True)),
+                RandomRotateMolTransform(angles=(359, 359, 359)),
             ],
             force_len=32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
         )
@@ -70,7 +70,7 @@ class TrainingConfig:
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_aug_norm_grad_acum"
+    output_dir = "./saves/ddpm-planar_3d_full_aug_norm_grad_acum"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
