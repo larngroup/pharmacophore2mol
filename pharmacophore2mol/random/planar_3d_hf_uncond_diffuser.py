@@ -63,14 +63,14 @@ class TrainingConfig:
     image_size = 32
     train_batch_size = 4
     eval_batch_size = 16
-    num_epochs = 500
+    num_epochs = 510
     gradient_accumulation_steps = 4
     learning_rate = 1e-4 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
     save_image_epochs = 30
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_slower_full_aug_norm_grad_acum"
+    output_dir = "./saves/ddpm-planar_3d_scaled_linear"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -169,7 +169,7 @@ plt.axis("off")
 plt.show()
 # exit()
 
-noise_scheduler = DDPMScheduler(num_train_timesteps=1000)
+noise_scheduler = DDPMScheduler(num_train_timesteps=1000, beta_schedule="scaled_linear")
 noise = torch.randn(sample_image.shape)
 timesteps = torch.LongTensor([50])
 noisy_image = noise_scheduler.add_noise(sample_image, noise, timesteps)
