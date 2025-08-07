@@ -70,7 +70,7 @@ class TrainingConfig:
     save_image_epochs = 30
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_scaled_linear"
+    output_dir = "./saves/ddpm-planar_3d_new_loss_cosine"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -169,7 +169,7 @@ plt.axis("off")
 plt.show()
 # exit()
 
-noise_scheduler = DDPMScheduler(num_train_timesteps=1000, beta_schedule="scaled_linear")
+noise_scheduler = DDPMScheduler(num_train_timesteps=1000, beta_schedule="squaredcos_cap_v2")
 noise = torch.randn(sample_image.shape)
 timesteps = torch.LongTensor([50])
 noisy_image = noise_scheduler.add_noise(sample_image, noise, timesteps)
@@ -245,7 +245,6 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
 
 
         for step, batch in enumerate(train_dataloader):
-            
             clean_images = batch
             # Sample noise to add to the images
             noise = torch.randn(clean_images.shape, device=clean_images.device)
@@ -256,6 +255,7 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
                 0, noise_scheduler.config.num_train_timesteps, (bs,), device=clean_images.device,
                 dtype=torch.int64
             )
+                
 
             # Add noise to the clean images according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
@@ -264,7 +264,9 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
-                loss = F.mse_loss(noise_pred, noise)
+                loss = F.mse_loss(noise_pred, noise, reduction="none")
+                mask = (batch + 1) / 2
+                loss = (loss * mask).mean()  # Apply the mask to the loss
                 accelerator.backward(loss)
 
                 if accelerator.sync_gradients:
