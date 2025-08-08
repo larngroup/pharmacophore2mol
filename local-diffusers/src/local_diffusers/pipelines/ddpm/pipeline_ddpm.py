@@ -17,6 +17,8 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 
+from local_diffusers.models.unets.unet_3d import UNet3DModel
+
 from ...models import UNet2DModel
 from ...schedulers import DDPMScheduler
 from ...utils import is_torch_xla_available
@@ -158,7 +160,7 @@ class DDPMPipeline3D(DiffusionPipeline):
 
     model_cpu_offload_seq = "unet"
 
-    def __init__(self, unet: UNet2DModel, scheduler: DDPMScheduler):
+    def __init__(self, unet: UNet3DModel, scheduler: DDPMScheduler):
         super().__init__()
         self.register_modules(unet=unet, scheduler=scheduler)
 

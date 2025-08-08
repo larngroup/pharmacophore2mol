@@ -61,7 +61,7 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 4
+    train_batch_size = 2
     eval_batch_size = 16
     num_epochs = 510
     gradient_accumulation_steps = 4
@@ -70,7 +70,7 @@ class TrainingConfig:
     save_image_epochs = 30
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_new_loss_cosine"
+    output_dir = "./saves/ddpm-planar_3d_cosine"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -138,7 +138,8 @@ model = UNet3DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    block_out_channels=[128, 128, 256, 256, 512, 512],
+    block_out_channels=[256, 256, 512, 512, 1024, 1024],
+    # block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
     # block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
@@ -178,8 +179,8 @@ noisy_image = noise_scheduler.add_noise(sample_image, noise, timesteps)
 
 
 
-noise_pred = model(noisy_image, timesteps).sample
-loss = F.mse_loss(noise_pred, noise)
+# noise_pred = model(noisy_image, timesteps).sample
+# loss = F.mse_loss(noise_pred, noise)
 
 
 
@@ -264,9 +265,10 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
-                loss = F.mse_loss(noise_pred, noise, reduction="none")
-                mask = (batch + 1) / 2
-                loss = (loss * mask).mean()  # Apply the mask to the loss
+                loss = F.mse_loss(noise_pred, noise)
+                # loss = F.mse_loss(noise_pred, noise, reduction="none")
+                # mask = (batch + 1) / 2
+                # loss = (loss * mask).mean()  # Apply the mask to the loss
                 accelerator.backward(loss)
 
                 if accelerator.sync_gradients:
