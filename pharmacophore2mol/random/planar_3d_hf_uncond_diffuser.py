@@ -61,7 +61,7 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
-    train_batch_size = 2
+    train_batch_size = 4
     eval_batch_size = 16
     num_epochs = 510
     gradient_accumulation_steps = 4
@@ -138,8 +138,8 @@ model = UNet3DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    block_out_channels=[256, 256, 512, 512, 1024, 1024],
-    # block_out_channels=[128, 128, 256, 256, 512, 512],
+    # block_out_channels=[256, 256, 512, 512, 1024, 1024],
+    block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
     # block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
