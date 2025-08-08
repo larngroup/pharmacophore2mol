@@ -95,6 +95,8 @@ multiprocess==0.70.15
     # via datasets
 networkx==3.4.2
     # via torch
+numerize==0.12
+    # via -r requirements.in
 numpy==2.2.5
     # via
     #   accelerate

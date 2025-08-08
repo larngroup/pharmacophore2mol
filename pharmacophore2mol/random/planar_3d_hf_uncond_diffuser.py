@@ -17,6 +17,7 @@ from huggingface_hub import create_repo, upload_folder
 from tqdm.auto import tqdm
 from pathlib import Path
 from torch.utils.data import Dataset
+from numerize.numerize import numerize
 
 
 
@@ -160,6 +161,8 @@ model = UNet3DModel(
     ),
 )
 
+model_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Model has {numerize(model_parameters)} trainable parameters")
 
 sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
 print("Input shape:", sample_image.shape)
