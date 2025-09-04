@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 from pathlib import Path
 from torch.utils.data import Dataset
 from numerize.numerize import numerize
-
+from torchvision.transforms.functional import to_pil_image
 
 
 from pharmacophore2mol.models.unet3d.dataset import SubGridsDataset
@@ -41,7 +41,7 @@ class UncondDataset(Dataset):
                 RandomFlipMolTransform(planes=(True, True, True)),
                 RandomRotateMolTransform(angles=(359, 359, 359)),
             ],
-            force_len=32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
+            force_len=32 * 32 * 5 #it seems to be the size of the butterfly dataset, so lets use it for consistency
         )
 
 
@@ -68,11 +68,12 @@ class TrainingConfig:
     num_epochs = 510
     gradient_accumulation_steps = 4
     learning_rate = 5e-5 #TODO: revert back to 1e-4 if needed
+    learning_rate = 5e-5 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
     save_image_epochs = 30
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_x8_more_ts_big_cosine"
+    output_dir = "./saves/ddpm-plannar_3d_x8_x5data_cosine"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -141,10 +142,13 @@ model = UNet3DModel(
     out_channels=3,
     layers_per_block=2,
     block_out_channels=[224, 224, 448, 448, 896, 896],
-    time_embedding_dim=224 * 8,
+    # block_out_channels=[192, 192, 384, 384, 768, 768],
     # block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
     # block_out_channels=[64, 64, 128, 128, 256, 256],
+    time_embedding_type="positional",
+    num_train_timesteps=1000,
+    time_embedding_dim=224 * 8,
     down_block_types=(
         "DownBlock3D",
         "DownBlock3D",
@@ -169,10 +173,10 @@ print(f"Model has {numerize(model_parameters)} trainable parameters")
 sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
 print("Input shape:", sample_image.shape)
 print("Output shape:", model(sample_image, timestep=0).sample.shape)
-plt.imshow(sample_image[0, :, :, :, 0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
-plt.title("Sample Image")
-plt.axis("off")
-plt.show()
+# plt.imshow(sample_image[0, :, :, :, 0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
+# plt.title("Sample Image")
+# plt.axis("off")
+# plt.show()
 # exit()
 
 noise_scheduler = DDPMScheduler(num_train_timesteps=config.num_train_timesteps, beta_schedule="squaredcos_cap_v2")
@@ -267,13 +271,18 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             # (this is the forward diffusion process)
             noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
 
+            # ##################################
+            # if timesteps[0] < 50:
+            #     pil=to_pil_image(((noisy_images[0, :, :, :, 0] + 1) / 2).clamp(0, 1).cpu())
+            #     pil.show()
+            # ##################################
+
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
                 loss = F.mse_loss(noise_pred, noise)
-                # loss = F.mse_loss(noise_pred, noise, reduction="none")
-                # mask = (batch + 1) / 2
-                # loss = (loss * mask).mean()  # Apply the mask to the loss
+
+                
                 accelerator.backward(loss)
 
                 if accelerator.sync_gradients:

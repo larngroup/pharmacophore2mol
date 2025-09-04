@@ -67,7 +67,7 @@ class TrainingConfig:
     save_image_epochs = 10
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-phenol_aug_norm-32"
+    output_dir = "./saves/ddpm-phenol_aug_norm-32_less_layers"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -135,11 +135,8 @@ model = UNet2DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    block_out_channels=[128, 128, 256, 256, 512, 512],
+    block_out_channels=[256, 512, 1024],
     down_block_types=(
-        "DownBlock2D",
-        "DownBlock2D",
-        "DownBlock2D",
         "DownBlock2D",
         "AttnDownBlock2D",
         "DownBlock2D",
@@ -147,9 +144,6 @@ model = UNet2DModel(
     up_block_types=(
         "UpBlock2D",
         "AttnUpBlock2D",
-        "UpBlock2D",
-        "UpBlock2D",
-        "UpBlock2D",
         "UpBlock2D",
     ),
 )
