@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 from pathlib import Path
 from torch.utils.data import Dataset
 from numerize.numerize import numerize
-
+from torchvision.transforms.functional import to_pil_image
 
 
 from pharmacophore2mol.models.unet3d.dataset import SubGridsDataset
@@ -140,9 +140,11 @@ model = UNet3DModel(
     out_channels=3,
     layers_per_block=2,
     # block_out_channels=[256, 256, 512, 512, 1024, 1024],
-    block_out_channels=[128, 128, 256, 256, 512, 512],
+    # block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
-    # block_out_channels=[64, 64, 128, 128, 256, 256],
+    block_out_channels=[64, 64, 128, 128, 256, 256],
+    time_embedding_type="learned",
+    num_train_timesteps=1000,
     down_block_types=(
         "DownBlock3D",
         "DownBlock3D",
@@ -265,13 +267,18 @@ def train_loop(config, model, noise_scheduler, optimizer, train_dataloader, lr_s
             # (this is the forward diffusion process)
             noisy_images = noise_scheduler.add_noise(clean_images, noise, timesteps)
 
+            # ##################################
+            # if timesteps[0] < 50:
+            #     pil=to_pil_image(((noisy_images[0, :, :, :, 0] + 1) / 2).clamp(0, 1).cpu())
+            #     pil.show()
+            # ##################################
+
             with accelerator.accumulate(model):
                 # Predict the noise residual
                 noise_pred = model(noisy_images, timesteps, return_dict=False)[0]
                 loss = F.mse_loss(noise_pred, noise)
-                # loss = F.mse_loss(noise_pred, noise, reduction="none")
-                # mask = (batch + 1) / 2
-                # loss = (loss * mask).mean()  # Apply the mask to the loss
+
+                
                 accelerator.backward(loss)
 
                 if accelerator.sync_gradients:

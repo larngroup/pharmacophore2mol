@@ -106,6 +106,7 @@ class SubGridsDataset(Dataset):
 
             mol_idx = self._get_mol_idx(idx) #TODO: while this is O(1), we could look into using the cumsum_index for memory reasons, especially in a multiprocess environment like pytorch multiple workers (indexes are copied)
             frag_idx = idx - self.cumsum_index[mol_idx]
+            # print("counts:", frag_idx, self._count_samples_in_mol(self.mol_supplier[mol_idx]), mol_idx, self.cumsum_index[mol_idx + 1] - self.cumsum_index[mol_idx])
             try:
                 mol = self.mol_supplier[mol_idx]
             except IndexError:
@@ -161,8 +162,17 @@ if __name__ == "__main__":
     # # Extract pharmacophore features
     # print("\nExtracting Pharmacophore Features...")
     # dataset = SubGridsDataset(mols_filename="../../data/raw/original_benzene.sdf")
-    dataset = SubGridsDataset(mols_filepath="../../data/raw/zinc3d_test.sdf")
+    from pharmacophore2mol.data.utils import RandomFlipMolTransform, RandomRotateMolTransform
+    # dataset = SubGridsDataset(mols_filepath="../../data/raw/small_planar.sdf",
+    dataset = SubGridsDataset(mols_filepath="../../data/raw/zinc3d_test.sdf",
+                              transforms=[#RandomFlipMolTransform(),
+                                          RandomRotateMolTransform()
+                                          ],
+                              )
     
-    tensor_x, tensor_y = dataset[16]
+    for i in tqdm(range(len(dataset)), desc="Testing dataset", unit="sample"):
+        pharm_frag, mol_frag = dataset[i]
+
+    # tensor_x, tensor_y = dataset[16]
     # batch = dataset[:16]
     # print(tensor_x.shape, tensor_y.shape)
