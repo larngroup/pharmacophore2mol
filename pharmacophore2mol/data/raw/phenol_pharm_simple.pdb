@@ -1,0 +1,6 @@
+HETATM    1 PS1  PSD P   1       0.394   0.000   0.000  0.00  0.00      PSDOPS  
+HETATM    2 PS1  PSD P   1      -2.362   0.000  -0.000  0.00  0.00      PSDOPS  
+HETATM    3 PS1  PSD P   1       0.394   0.000   1.000  0.00  0.00      PSDOPS  
+HETATM    4 PS2  PSD P   1      -2.677   0.920  -0.001  0.00  0.00      PSDOPS  
+HETATM    5 PS2  PSD P   1       0.394   0.000  -1.000  0.00  0.00      PSDOPS  
+END

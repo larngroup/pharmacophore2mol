@@ -149,7 +149,7 @@ class RandomRotateMolTransform:
         Parameters
         ----------
         angles : tuple
-            The angles (degrees) to rotate around the x, y and z axes.
+            The angles (radians) to rotate around the x, y and z axes.
         """
         x, y, z = angles
         Rx = np.array([[1, 0, 0],

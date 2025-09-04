@@ -1,0 +1,14 @@
+#Ficheiros resultantes da compilação do projeto
+**.aux
+**.bbl
+**.blg
+**.fdb_latexmk
+**.fls
+**.lof
+**.log
+**.lot
+**.out
+**.synctex.gz
+**.toc
+**.DS_Store
+**.lb
