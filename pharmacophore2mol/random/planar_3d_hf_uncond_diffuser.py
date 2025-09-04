@@ -41,7 +41,7 @@ class UncondDataset(Dataset):
                 RandomFlipMolTransform(planes=(True, True, True)),
                 RandomRotateMolTransform(angles=(359, 359, 359)),
             ],
-            force_len=32 * 32 #it seems to be the size of the butterfly dataset, so lets use it for consistency
+            force_len=32 * 32 * 5 #it seems to be the size of the butterfly dataset, so lets use it for consistency
         )
 
 
@@ -66,12 +66,12 @@ class TrainingConfig:
     eval_batch_size = 16
     num_epochs = 510
     gradient_accumulation_steps = 4
-    learning_rate = 1e-4 #TODO: revert back to 1e-4 if needed
+    learning_rate = 5e-5 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
     save_image_epochs = 30
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_cosine"
+    output_dir = "./saves/ddpm-plannar_3d_x8_x5data_cosine"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -139,10 +139,14 @@ model = UNet3DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    # block_out_channels=[256, 256, 512, 512, 1024, 1024],
-    block_out_channels=[128, 128, 256, 256, 512, 512],
+    block_out_channels=[224, 224, 448, 448, 896, 896],
+    # block_out_channels=[192, 192, 384, 384, 768, 768],
+    # block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
     # block_out_channels=[64, 64, 128, 128, 256, 256],
+    time_embedding_type="positional",
+    num_train_timesteps=1000,
+    time_embedding_dim=224 * 8,
     down_block_types=(
         "DownBlock3D",
         "DownBlock3D",
@@ -167,10 +171,10 @@ print(f"Model has {numerize(model_parameters)} trainable parameters")
 sample_image = dataset[0].unsqueeze(0)  # Add batch dimension
 print("Input shape:", sample_image.shape)
 print("Output shape:", model(sample_image, timestep=0).sample.shape)
-plt.imshow(sample_image[0, :, :, :, 0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
-plt.title("Sample Image")
-plt.axis("off")
-plt.show()
+# plt.imshow(sample_image[0, :, :, :, 0].cpu().numpy().transpose(1, 2, 0)) #watch out cuz it is clipping values to [0, 1] range
+# plt.title("Sample Image")
+# plt.axis("off")
+# plt.show()
 # exit()
 
 noise_scheduler = DDPMScheduler(num_train_timesteps=1000, beta_schedule="squaredcos_cap_v2")

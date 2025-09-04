@@ -104,7 +104,7 @@ class SubGridsDataset(Dataset):
             #correct the idx for situations where dataset is repeated when force_len is set
             idx = idx % self.n_samples
 
-            mol_idx = self._get_mol_idx(idx) #TODO: while this is O(1), we could look into using the cumsum_index for memory reasons, especially in a multiprocess environment like pytorch multiple workers (indexes are copied)
+            mol_idx = self._get_mol_idx(idx)
             frag_idx = idx - self.cumsum_index[mol_idx]
             try:
                 mol = self.mol_supplier[mol_idx]
