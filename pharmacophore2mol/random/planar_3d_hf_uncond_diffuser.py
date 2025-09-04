@@ -62,16 +62,17 @@ os.chdir(os.path.join(os.path.dirname(__file__), "."))
 @dataclass
 class TrainingConfig:
     image_size = 32
+    num_train_timesteps = 4000
     train_batch_size = 4
     eval_batch_size = 16
     num_epochs = 510
     gradient_accumulation_steps = 4
-    learning_rate = 1e-4 #TODO: revert back to 1e-4 if needed
+    learning_rate = 5e-5 #TODO: revert back to 1e-4 if needed
     lr_warmup_steps = 500
     save_image_epochs = 30
     save_model_epochs = 30
     mixed_precision = "fp16"
-    output_dir = "./saves/ddpm-planar_3d_cosine"
+    output_dir = "./saves/ddpm-planar_3d_x8_more_ts_big_cosine"
     overwrite_output_dir = True
     seed = 0
     push_to_hub = False
@@ -139,8 +140,9 @@ model = UNet3DModel(
     in_channels=3,
     out_channels=3,
     layers_per_block=2,
-    # block_out_channels=[256, 256, 512, 512, 1024, 1024],
-    block_out_channels=[128, 128, 256, 256, 512, 512],
+    block_out_channels=[224, 224, 448, 448, 896, 896],
+    time_embedding_dim=224 * 8,
+    # block_out_channels=[128, 128, 256, 256, 512, 512],
     # block_out_channels=[64, 128, 128, 256, 256, 512],
     # block_out_channels=[64, 64, 128, 128, 256, 256],
     down_block_types=(
@@ -173,7 +175,7 @@ plt.axis("off")
 plt.show()
 # exit()
 
-noise_scheduler = DDPMScheduler(num_train_timesteps=1000, beta_schedule="squaredcos_cap_v2")
+noise_scheduler = DDPMScheduler(num_train_timesteps=config.num_train_timesteps, beta_schedule="squaredcos_cap_v2")
 noise = torch.randn(sample_image.shape)
 timesteps = torch.LongTensor([50])
 noisy_image = noise_scheduler.add_noise(sample_image, noise, timesteps)
