@@ -13,6 +13,7 @@ def load_unet_from_safetensors(config_path, safetensors_path, device='cpu'):
 
     # Initialize model from config
     unet = UNet3DModel.from_config(config)
+    unet.eval()
     unet.to(device)
     
 

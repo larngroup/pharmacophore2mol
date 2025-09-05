@@ -70,7 +70,7 @@ class UNet3DConditionOutput(BaseOutput):
 
 
 class UNet3DConditionModel(
-    ModelMixin, ConfigMixin, FromOriginalModelMixin, UNet3DConditionLoadersMixin, PeftAdapterMixin
+    ModelMixin, ConfigMixin, FromOriginalModelMixin, UNet2DConditionLoadersMixin, PeftAdapterMixin
 ):
     r"""
     A conditional 3D UNet model that takes a noisy 3D voxel grid sample, conditional state, and a timestep and returns a sample-shaped output.
@@ -1050,7 +1050,7 @@ class UNet3DConditionModel(
         down_intrablock_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
         return_dict: bool = True,
-    ) -> Union[UNet2DConditionOutput, Tuple]:
+    ) -> Union[UNet3DConditionOutput, Tuple]:
         r"""
         The [`UNet3DConditionModel`] forward method.
 
@@ -1307,4 +1307,4 @@ class UNet3DConditionModel(
         if not return_dict:
             return (sample,)
 
-    return UNet3DConditionOutput(sample=sample)
+        return UNet3DConditionOutput(sample=sample)
