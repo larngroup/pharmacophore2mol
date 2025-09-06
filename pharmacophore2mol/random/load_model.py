@@ -1,3 +1,4 @@
+import PIL
 from local_diffusers import UNet3DModel
 from safetensors.torch import load_file
 import torch
@@ -5,6 +6,11 @@ import json
 import os
 import pharmacophore2mol as p2m
 from local_diffusers import DDPMPipeline3D, DDPMScheduler
+from local_diffusers.utils import make_image_grid
+from datetime import datetime
+
+
+
 
 def load_unet_from_safetensors(config_path, safetensors_path, device='cpu'):
     # Load config
@@ -24,20 +30,29 @@ def load_unet_from_safetensors(config_path, safetensors_path, device='cpu'):
     return unet
 
 
-def generate_samples(unet, num_samples=1, batch_size=1, device='cpu'):
+def generate_samples(unet, batch_size=16, device='cpu'):
     scheduler = DDPMScheduler(num_train_timesteps=1000, beta_schedule="squaredcos_cap_v2")
     pipeline = DDPMPipeline3D(unet, scheduler=scheduler)
     return pipeline(
-        batch_size=16,
-        generator=torch.Generator(device="cpu").manual_seed(0),# Use a separate torch generator to avoid rewinding the random state of the main training loop
+        batch_size=batch_size,
+        num_inference_steps=1000,
+        generator=torch.Generator(device="cpu").manual_seed(1),# Use a separate torch generator to avoid rewinding the random state of the main training loop
     ).images
 
 # Example usage:
 if __name__ == "__main__":
-    config_path = p2m.PROJECT_DIR / "random" / "models" / "big_cosine_x5data_x8emb" / "config.json"
-    safetensors_path = p2m.PROJECT_DIR / "random" / "models" / "big_cosine_x5data_x8emb" / "diffusion_pytorch_model_419.safetensors"
+    config_path = p2m.PROJECT_DIR / "random" / "saves" / "ddpm-plannar_3d_x8_x5data_cosine" / "unet" / "config.json"
+    safetensors_path = p2m.PROJECT_DIR / "random" / "saves" / "ddpm-plannar_3d_x8_x5data_cosine" / "unet" / "diffusion_pytorch_model.safetensors"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     unet = load_unet_from_safetensors(config_path, safetensors_path, device)
     print("UNet model loaded successfully.")
-    samples = generate_samples(unet, num_samples=1, batch_size=1, device=device)
-    print(samples)
+    timestamp = round(10000000000 - datetime.now().timestamp())
+    out_dir = os.path.join(p2m.PROJECT_DIR / "random" / "saves" / "samples")
+    os.makedirs(out_dir, exist_ok=True)
+
+    samples = generate_samples(unet, batch_size=16, device=device)
+    image_grid = make_image_grid(samples, rows=4, cols=4)
+
+    
+    print(f"Saving images to {out_dir}/{timestamp}.png")
+    image_grid.save(f"{out_dir}/{timestamp}.png")
