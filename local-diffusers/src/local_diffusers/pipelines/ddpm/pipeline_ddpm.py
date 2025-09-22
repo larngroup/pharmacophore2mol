@@ -109,6 +109,7 @@ class DDPMPipeline(DiffusionPipeline):
                 self.unet.config.sample_size,
                 self.unet.config.sample_size,
             )
+            print(self.unet.config.sample_size)
         else:
             image_shape = (batch_size, self.unet.config.in_channels, *self.unet.config.sample_size)
 

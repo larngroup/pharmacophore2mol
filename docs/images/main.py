@@ -58,6 +58,36 @@ class PharmacophoreExample(Scene):
         self.add(main_container)
 
 
+class PharmacophoreExampleRandom(Scene):
+    def construct(self):
+        img = ImageMobject("./docs/images/assets/random_pharm.png").scale_to_fit_width(20)
+
+        legend_container = VGroup()
+    
+        for i, (legend, color) in enumerate(zip(["Aromatic", "H-Bond Donnor", "H-Bond Acceptor"], [PURE_GREEN, PURE_RED, PURE_BLUE])):
+            circle_center = Circle(radius=0.4, color=color, fill_opacity=1, stroke_width=2)
+            text_center = Tex(legend + " Center", font_size=48)
+            circle_dir = Circle(radius=0.2, color=color, fill_opacity=1, stroke_width=2)
+            text_dir = Tex(legend + " Direction", font_size=48)
+            text_center.next_to(circle_center, RIGHT, buff=0.5)
+            circle_dir.next_to(circle_center, DOWN, buff=0.5)
+            text_dir.next_to(circle_dir, RIGHT, buff=0.5).align_to(text_center, LEFT)
+            inner_container = VGroup(circle_center, text_center, circle_dir, text_dir)
+            if i > 0:
+                inner_container.next_to(legend_container[i-1], DOWN, buff=1).align_to(legend_container[i-1], LEFT)
+            legend_container.add(inner_container)
+
+        legend_container.next_to(img, RIGHT, buff=1)
+
+        main_container = Group(
+            img,
+            legend_container,
+        )
+
+        main_container.scale_to_fit_width(config.frame_width * 0.95)
+        main_container.move_to(ORIGIN)
+        self.add(main_container)
+
 class Unet2DArch(Scene):
 
 
