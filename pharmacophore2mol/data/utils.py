@@ -3,6 +3,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 from rdkit import Chem
+from openbabel import pybel
+from glob import glob
 
 # def translate_points_to_positive(points: np.ndarray) -> np.ndarray:
 #     """
@@ -18,6 +20,28 @@ from rdkit import Chem
 #     translated_points = points + translation_vector
 
 #     return translated_points
+
+
+def get_mol_supplier(mols_filepath, remove_hs=False, sanitize=True, strict_parsing=False):
+    """Just a wrapper to RDKit's SDMolSupplier with my own defaults, for clarity.
+    Snake case cuz we pythonic
+
+    Parameters
+    ----------
+    mols_filepath : str
+        Path to the SDF file containing the molecules.
+    remove_hs : bool, optional
+        Whether to remove hydrogens from the molecules. Default is False.
+    sanitize : bool, optional
+        Whether to sanitize the molecules. Default is True.
+    strict_parsing : bool, optional
+        Whether to use strict parsing. Default is False.
+    Returns
+    -------
+    Chem.SDMolSupplier
+        RDKit SDMolSupplier object to iterate over the molecules in the SDF file.
+    """
+    return Chem.SDMolSupplier(mols_filepath, removeHs=remove_hs, sanitize=sanitize, strictParsing=strict_parsing)
 
 
 #maryam the data agugmentation goes here
@@ -216,6 +240,33 @@ class RandomFlipMolTransform:
                 
         
         
+def convert_xyz_to_sdf(input_path, output_sdf=None):
+    """Converts from atom coordinates (.xyz supported) to .sdf, using OpenBabel"""
+    if output_sdf is None:
+        output_sdf = os.path.splitext(input_path)[0] + ".sdf"
+    output = pybel.Outputfile("sdf", output_sdf, overwrite=True)
+    
+    if os.path.isdir(input_path):
+        # Process all .xyz files in the directory
+        xyz_files = glob("*.xyz", root_dir=input_path)
+    elif input_path.lower().endswith('.xyz'):
+        xyz_files = [input_path]
+    else:
+        raise ValueError("input_path is not a directory or a xyz file.")
+
+    for xyz_file in xyz_files:
+        try:
+            mol = next(pybel.readfile("xyz", xyz_file))
+            mol.title = "end"  # Match VoxMol's behavior
+            output.write(mol)
+        except StopIteration:
+            print(f"Warning: Could not read {xyz_file}")
+        except Exception as e:
+            print(f"Error processing {xyz_file}: {e}")
+    
+    output.close()
+    print(f"Converted {len(xyz_files)} molecules to {output_sdf}")
+
 
 
     

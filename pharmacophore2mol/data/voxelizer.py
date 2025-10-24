@@ -249,6 +249,8 @@ class Voxelizer:
             grid_gauss = np.sum(np.square(grid_gauss), axis=1).reshape(shape) #sum of the squares is the same as the weighted average of the values
         elif pooling == "sum":
             grid_gauss = np.sum(grid_gauss, axis=1).reshape(shape)
+        elif pooling == "prob": #apparently theres a library that does voxelization called pyuul, this is their method
+            grid_gauss = 1 - np.prod(1 - grid_gauss, axis=1).reshape(shape)
         else:
             raise ValueError(f"Invalid pooling mode: {pooling}. Available modes: ['max', 'avg', 'sum']")
         return grid_gauss
@@ -441,7 +443,7 @@ if __name__ == "__main__":
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
     suppl = Chem.SDMolSupplier("./raw/zinc3d_test.sdf", removeHs=False, sanitize=False, strictParsing=False)
-    v = Voxelizer(channels=["C", "H", "N"], resolution=0.20, mode="gaussian")#, pooling="max", std=1.0) #defaults
+    v = Voxelizer(channels=["C", "H", "N"], resolution=0.20, mode="gaussian", pooling="max", std=0.5) #defaults
     mol = suppl[0]
     atom_dict = mol_to_atom_dict(mol)
 

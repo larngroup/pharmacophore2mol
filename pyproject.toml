@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pharmacophore2mol"
+version = "0.1.0"
+description = "Generate molecules from pharmacophore models"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "" }
+authors = [
+    { name = "Raul Sofia", email = "rauljcsofia@gmail.com" }
+]
+
+dependencies = [
+    # e.g. "rdkit", "click", "numpy"
+]
+
+[project.scripts]
+pharmacophore2mol = "pharmacophore2mol.cli:cli"
+p2m = "pharmacophore2mol.cli:cli"
+
+[tool.setuptools.packages.find]
+include = ["pharmacophore2mol"]
