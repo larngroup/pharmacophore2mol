@@ -1,10 +1,14 @@
 import os
+import logging
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 from rdkit import Chem
 from openbabel import pybel
 from glob import glob
+import pharmacophore2mol as p2m
+
+logger = logging.getLogger(__name__)
 
 # def translate_points_to_positive(points: np.ndarray) -> np.ndarray:
 #     """
@@ -240,15 +244,22 @@ class RandomFlipMolTransform:
                 
         
         
-def convert_xyz_to_sdf(input_path, output_sdf=None):
+def convert_xyz_to_sdf(input_path, output_sdf=None, verbose=False):
     """Converts from atom coordinates (.xyz supported) to .sdf, using OpenBabel"""
+
+    if verbose == False:
+        pybel.ob.OBMessageHandler() # Suppress OpenBabel output
     if output_sdf is None:
-        output_sdf = os.path.splitext(input_path)[0] + ".sdf"
+        base_name = os.path.basename(os.path.normpath(input_path))
+        output_sdf = p2m.TEMP_DIR / f"{base_name}_converted.sdf"
+    # Ensure we pass a string path to pybel (OpenBabel expects a std::string)
+    output_sdf = str(output_sdf)
     output = pybel.Outputfile("sdf", output_sdf, overwrite=True)
     
     if os.path.isdir(input_path):
         # Process all .xyz files in the directory
         xyz_files = glob("*.xyz", root_dir=input_path)
+        xyz_files = [os.path.join(input_path, f) for f in xyz_files]
     elif input_path.lower().endswith('.xyz'):
         xyz_files = [input_path]
     else:
@@ -260,12 +271,12 @@ def convert_xyz_to_sdf(input_path, output_sdf=None):
             mol.title = "end"  # Match VoxMol's behavior
             output.write(mol)
         except StopIteration:
-            print(f"Warning: Could not read {xyz_file}")
+            logger.warning(f"Could not read {xyz_file}")
         except Exception as e:
-            print(f"Error processing {xyz_file}: {e}")
+            logger.error(f"Error processing {xyz_file}: {e}")
     
     output.close()
-    print(f"Converted {len(xyz_files)} molecules to {output_sdf}")
+    return output_sdf
 
 
 

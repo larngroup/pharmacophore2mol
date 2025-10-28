@@ -5,12 +5,15 @@ Metrics evaluator module for generated molecules.
 from dataclasses import dataclass, asdict
 from typing import List, Dict
 import json
+import logging
 from tabulate import tabulate
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from tqdm import tqdm
 from pharmacophore2mol.data.utils import get_mol_supplier
 from functools import reduce, partial, lru_cache
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,7 +47,7 @@ class EvaluationResults:
         """Save results to JSON file."""
         with open(filepath, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
-        print(f"Results saved to {filepath}")
+        logger.info(f"Results saved to {filepath}")
     
     def print_summary(self, tablefmt: str = "grid"):
         """
@@ -54,7 +57,10 @@ class EvaluationResults:
             tablefmt: Table format for tabulate. Options include:
                      'grid', 'fancy_grid', 'simple', 'plain', 'github', 'pretty'
         """
-        print(f"\nQuality Metrics Results (n={self.n_molecules} molecules)")
+        # Use tqdm.write to avoid breaking progress bars if they're still active
+        from tqdm import tqdm
+        
+        summary = f"\nQuality Metrics Results (n={self.n_molecules} molecules)\n"
         
         # Prepare table data
         table_data = [
@@ -67,7 +73,10 @@ class EvaluationResults:
             ["Median Strain Energy (kcal/mol)", f"{self.median_strain_energy:.2f}"],
         ]
         
-        print(tabulate(table_data, headers=["Metric", "Value"], tablefmt=tablefmt))
+        table_str = tabulate(table_data, headers=["Metric", "Value"], tablefmt=tablefmt)
+        
+        # Use tqdm.write for clean output even with progress bars
+        tqdm.write(summary + table_str)
 
     def __str__(self):
         self.print_summary()
@@ -125,7 +134,7 @@ class Evaluator:
             #is probably a file path to an sdf
             molecules = get_mol_supplier(molecules, remove_hs=False, sanitize=False, strict_parsing=False)
 
-        print(f"Evaluating {len(molecules)} molecules...")
+        logger.info(f"Evaluating {len(molecules)} molecules...")
         n_molecules = len(molecules)
         map_arrays = {metric: [None] * n_molecules for metric in self.metrics.keys()}
 

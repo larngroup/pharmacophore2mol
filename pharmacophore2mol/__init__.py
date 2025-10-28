@@ -12,3 +12,6 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 
 # Model directories
 MODELS_DIR = PROJECT_DIR / "models"
+
+# Temp files dir
+TEMP_DIR = PROJECT_DIR / "temp"

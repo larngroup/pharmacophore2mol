@@ -1,8 +1,7 @@
 from torch.utils.data import Dataset
 
-
-
 import os
+import logging
 import torch
 from torch.utils.data import Dataset
 from rdkit import Chem
@@ -14,6 +13,8 @@ from pharmacophore2mol.models.unet3d.config import config
 from pharmacophore2mol.models.unet3d.utils import get_next_multiple_of
 import bisect
 from collections.abc import Iterable
+
+logger = logging.getLogger(__name__)
 
 class BaseDataset(Dataset):
     def __init__(self, mols_filepath, padding=0, transforms=None, force_len=None):
@@ -50,10 +51,10 @@ class BaseDataset(Dataset):
                 # self.index.extend([i] * count)
             elif mol is not None: #interrupted due to force_len
                 pbar.close()
-                print(f"Indexing interrupted due to force_len: Dataset length truncated to {force_len} samples, stopping indexing.")
+                logger.info(f"Indexing interrupted due to force_len: Dataset length truncated to {force_len} samples, stopping indexing.")
                 break
             else:
-                print(f"Invalid molecule at index {i} in {self.mols_filepath}.")
+                logger.warning(f"Invalid molecule at index {i} in {self.mols_filepath}.")
         # print(self.cumsum_index)
 
         if force_len is not None:
