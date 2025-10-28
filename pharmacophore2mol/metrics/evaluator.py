@@ -75,7 +75,7 @@ class EvaluationResults:
         
         table_str = tabulate(table_data, headers=["Metric", "Value"], tablefmt=tablefmt)
         
-        # Use tqdm.write for clean output even with progress bars
+        #tqdm logging to prevent progress bar glitches
         tqdm.write(summary + table_str)
 
     def __str__(self):
@@ -304,7 +304,7 @@ class Evaluator:
             mol_copy = Chem.Mol(mol)
             
             # Get energy before optimization
-            # ff = AllChem.UFFGetMoleculeForceField(mol)
+            ff = AllChem.UFFGetMoleculeForceField(mol)
             # if ff is None:
                 # return None
             # energy_before = ff.CalcEnergy()

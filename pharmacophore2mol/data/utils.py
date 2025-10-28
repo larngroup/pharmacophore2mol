@@ -1,5 +1,7 @@
 import os
 import logging
+import sys
+import contextlib
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -9,6 +11,38 @@ from glob import glob
 import pharmacophore2mol as p2m
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def suppress_openbabel_warnings():
+    """
+    Context manager to suppress OpenBabel stderr output.
+    Only suppresses if logging level is INFO or higher (not DEBUG).
+    """
+    current_log_level = logging.getLogger().getEffectiveLevel()
+    
+    if current_log_level > logging.DEBUG:
+        # Suppress OpenBabel C++ stderr output by redirecting file descriptor
+        import tempfile
+        
+        # Save the original stderr file descriptor
+        stderr_fd = sys.stderr.fileno()
+        old_stderr_fd = os.dup(stderr_fd)
+        
+        # Redirect stderr to devnull
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, stderr_fd)
+        os.close(devnull_fd)
+        
+        try:
+            yield
+        finally:
+            # Restore original stderr
+            os.dup2(old_stderr_fd, stderr_fd)
+            os.close(old_stderr_fd)
+    else:
+        # In verbose/debug mode, don't suppress anything
+        yield
 
 # def translate_points_to_positive(points: np.ndarray) -> np.ndarray:
 #     """
@@ -244,17 +278,18 @@ class RandomFlipMolTransform:
                 
         
         
-def convert_xyz_to_sdf(input_path, output_sdf=None, verbose=False):
-    """Converts from atom coordinates (.xyz supported) to .sdf, using OpenBabel"""
-
-    if verbose == False:
-        pybel.ob.OBMessageHandler() # Suppress OpenBabel output
+def convert_xyz_to_sdf(input_path, output_sdf=None):
+    """
+    Converts from atom coordinates (.xyz supported) to .sdf, using OpenBabel.
+    
+    OpenBabel warnings are suppressed unless logging is set to DEBUG level.
+    """
     if output_sdf is None:
         base_name = os.path.basename(os.path.normpath(input_path))
         output_sdf = p2m.TEMP_DIR / f"{base_name}_converted.sdf"
+    
     # Ensure we pass a string path to pybel (OpenBabel expects a std::string)
     output_sdf = str(output_sdf)
-    output = pybel.Outputfile("sdf", output_sdf, overwrite=True)
     
     if os.path.isdir(input_path):
         # Process all .xyz files in the directory
@@ -264,18 +299,23 @@ def convert_xyz_to_sdf(input_path, output_sdf=None, verbose=False):
         xyz_files = [input_path]
     else:
         raise ValueError("input_path is not a directory or a xyz file.")
-
-    for xyz_file in xyz_files:
-        try:
-            mol = next(pybel.readfile("xyz", xyz_file))
-            mol.title = "end"  # Match VoxMol's behavior
-            output.write(mol)
-        except StopIteration:
-            logger.warning(f"Could not read {xyz_file}")
-        except Exception as e:
-            logger.error(f"Error processing {xyz_file}: {e}")
     
-    output.close()
+    # Use context manager to suppress OpenBabel warnings in non-verbose mode
+    with suppress_openbabel_warnings():
+        output = pybel.Outputfile("sdf", output_sdf, overwrite=True)
+        
+        for xyz_file in xyz_files:
+            try:
+                mol = next(pybel.readfile("xyz", xyz_file))
+                mol.title = "end"  # Match VoxMol's behavior
+                output.write(mol)
+            except StopIteration:
+                logger.warning(f"Could not read {xyz_file}")
+            except Exception as e:
+                logger.error(f"Error processing {xyz_file}: {e}")
+        
+        output.close()
+    
     return output_sdf
 
 

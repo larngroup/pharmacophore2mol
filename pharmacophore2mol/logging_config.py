@@ -82,11 +82,11 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
     logging.getLogger('rdkit').setLevel(logging.WARNING)
     
     # Suppress RDKit C++ warnings about UFF
-    try:
-        from rdkit import RDLogger
-        RDLogger.DisableLog('rdApp.*')
-    except Exception:
-        pass
+    # try:
+    #     from rdkit import RDLogger
+    #     RDLogger.DisableLog('rdApp.*')
+    # except Exception:
+    #     pass
 
 
 def get_logger(name: str) -> logging.Logger:
