@@ -10,8 +10,11 @@ from tabulate import tabulate
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from tqdm import tqdm
-from pharmacophore2mol.data.utils import get_mol_supplier
+from pharmacophore2mol.data.utils import CustomSDMolSupplier, SANITIZE_DEFAULT_OPS
 from functools import reduce, partial, lru_cache
+from pharmacophore2mol.data.chemistry import get_mol_stability, get_number_of_components, rdkit_is_valid
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +135,7 @@ class Evaluator:
         """
         if isinstance(molecules, str):
             #is probably a file path to an sdf
-            molecules = get_mol_supplier(molecules, remove_hs=False, sanitize=False, strict_parsing=False)
+            molecules = CustomSDMolSupplier(molecules)
 
         logger.info(f"Evaluating {len(molecules)} molecules...")
         n_molecules = len(molecules)
@@ -169,7 +172,7 @@ class Evaluator:
         Returns:
             bool: True if valid, False otherwise.
         """
-        return mol is not None and mol.GetNumAtoms() > 0
+        return rdkit_is_valid(mol)
 
     @lru_cache(maxsize=1)
     def _count_components(self, mol: Chem.Mol) -> int:
@@ -179,10 +182,7 @@ class Evaluator:
         Returns:
             int: Number of connected components.
         """
-        if mol is None:
-            return 0
-        frags = Chem.GetMolFrags(mol, asMols=False)
-        return len(frags)
+        return get_number_of_components(mol)
     
     @lru_cache(maxsize=1)
     def _compute_stability(self, mol: Chem.Mol) -> float:
@@ -193,89 +193,10 @@ class Evaluator:
         Returns:
             float: Fraction of stable atoms (0-1).
         """
-        if mol is None or mol.GetNumAtoms() == 0:
-            return 0.0
-        
-        # dictionary of allowed valencies per atom type and charge
-        # from MiDi/VoxMol implementation
-        allowed_bonds = {
-            'H': {0: 1, 1: 0, -1: 0},
-            'C': {0: [3, 4], 1: 3, -1: 3},
-            'N': {0: [2, 3], 1: [2, 3, 4], -1: 2},
-            'O': {0: 2, 1: 3, -1: 1},
-            'F': {0: 1, -1: 0},
-            'B': 3,
-            'Al': 3,
-            'Si': 4,
-            'P': {0: [3, 5], 1: 4},
-            'S': {0: [2, 6], 1: [2, 3], 2: 4, 3: 5, -1: 3},
-            'Cl': 1,
-            'As': 3,
-            'Br': {0: 1, 1: 2},
-            'I': 1,
-            'Hg': [1, 2],
-            'Bi': [3, 5],
-            'Se': [2, 4, 6]
-        }
-        
-        n_stable_atoms = 0
-        n_total_atoms = mol.GetNumAtoms()
-        
-        for atom in mol.GetAtoms():
-            # Get atom properties
-            atom_symbol = atom.GetSymbol()
-            charge = atom.GetFormalCharge()
-            
-            # Calculate valency (sum of bond orders)
-            valency = 0
-            for bond in atom.GetBonds():
-                bond_type = bond.GetBondType()
-                if bond_type == Chem.BondType.SINGLE:
-                    valency += 1
-                elif bond_type == Chem.BondType.DOUBLE:
-                    valency += 2
-                elif bond_type == Chem.BondType.TRIPLE:
-                    valency += 3
-                elif bond_type == Chem.BondType.AROMATIC:
-                    valency += 1.5
-                # ignoring other bond types (like DATIVE)
-            
-            if atom_symbol not in allowed_bonds:
-                # Unknown atom type, assume unstable
-                continue
-            
-            possible_bonds = allowed_bonds[atom_symbol]
-            
-            is_stable = False
-            
-            if isinstance(possible_bonds, int):
-                is_stable = (valency == possible_bonds)
-                
-            elif isinstance(possible_bonds, list):
-                is_stable = (valency in possible_bonds)
-                
-            elif isinstance(possible_bonds, dict):
-                # charge-dependent valencies (e.g., H, C, N, O)
-                if charge in possible_bonds:
-                    expected_bonds = possible_bonds[charge]
-                else:
-                    # use neutral as default
-                    expected_bonds = possible_bonds.get(0, None)
-                
-                if expected_bonds is None:
-                    is_stable = False
-                elif isinstance(expected_bonds, int):
-                    is_stable = (valency == expected_bonds)
-                elif isinstance(expected_bonds, list):
-                    is_stable = (valency in expected_bonds)
-            
-            if is_stable:
-                n_stable_atoms += 1
-            # else:
-            #     print(f"Unstable atom: {atom_symbol} (charge: {charge}, valency: {valency})")
-        
-        return n_stable_atoms / n_total_atoms if n_total_atoms > 0 else 0.0
-    
+        stable_frac = get_mol_stability(mol)
+        return stable_frac
+
+
     # @lru_cache(maxsize=1)
     def _compute_strain_energy(self, mol: Chem.Mol) -> float:
         """
@@ -304,7 +225,7 @@ class Evaluator:
             mol_copy = Chem.Mol(mol)
             
             # Get energy before optimization
-            ff = AllChem.UFFGetMoleculeForceField(mol)
+            # ff = AllChem.UFFGetMoleculeForceField(mol)
             # if ff is None:
                 # return None
             # energy_before = ff.CalcEnergy()
@@ -401,7 +322,7 @@ if __name__ == "__main__":
     path2 = "./pharmacophore2mol/data/raw/zinc3d_test.sdf"
     results = evaluator.evaluate(path)
 
-    # mol_supplier = get_mol_supplier(path, remove_hs=False, sanitize=False, strict_parsing=False)
+    # mol_supplier = CustomSDMolSupplier(path)
     # results = evaluator.evaluate(mol_supplier)
 
     # molecules = [mol for mol in mol_supplier if mol is not None]

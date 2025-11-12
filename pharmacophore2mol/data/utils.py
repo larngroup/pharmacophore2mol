@@ -13,6 +13,9 @@ import pharmacophore2mol as p2m
 logger = logging.getLogger(__name__)
 
 
+SANITIZE_DEFAULT_OPS = Chem.SanitizeFlags.SANITIZE_ALL & ~Chem.SanitizeFlags.SANITIZE_FINDRADICALS
+
+
 @contextlib.contextmanager
 def suppress_openbabel_warnings():
     """
@@ -60,26 +63,101 @@ def suppress_openbabel_warnings():
 #     return translated_points
 
 
-def get_mol_supplier(mols_filepath, remove_hs=False, sanitize=True, strict_parsing=False):
-    """Just a wrapper to RDKit's SDMolSupplier with my own defaults, for clarity.
-    Snake case cuz we pythonic
-
+class CustomSDMolSupplier:
+    """
+    Custom molecule supplier with configurable sanitization.
+    
+    Wraps RDKit's SDMolSupplier to provide custom sanitization behavior
+    before molecules are yielded. This allows fine-grained control over
+    which sanitization operations are performed.
+    
     Parameters
     ----------
-    mols_filepath : str
-        Path to the SDF file containing the molecules.
+    filepath : str
+        Path to the SDF file
     remove_hs : bool, optional
-        Whether to remove hydrogens from the molecules. Default is False.
+        Remove hydrogens after sanitization (default: False)
     sanitize : bool, optional
-        Whether to sanitize the molecules. Default is True.
+        Apply sanitization (default: True)
+    sanitize_ops : int, optional
+        Custom sanitization flags. If None, uses SANITIZE_DEFAULT_OPS
+        (SANITIZE_ALL excluding FINDRADICALS). Default is None.
     strict_parsing : bool, optional
-        Whether to use strict parsing. Default is False.
-    Returns
+        Use strict parsing (default: False)
+        
+    Example
     -------
-    Chem.SDMolSupplier
-        RDKit SDMolSupplier object to iterate over the molecules in the SDF file.
+    >>> # Default usage with custom sanitization (excludes FINDRADICALS)
+    >>> supplier = CustomSDMolSupplier("molecules.sdf")
+    >>> for mol in supplier:
+    ...     if mol is not None:
+    ...         print(mol.GetNumAtoms())
+    
+    >>> # Custom sanitization flags
+    >>> from rdkit import Chem
+    >>> custom_ops = Chem.SanitizeFlags.SANITIZE_ALL & ~Chem.SanitizeFlags.SANITIZE_PROPERTIES
+    >>> supplier = CustomSDMolSupplier("molecules.sdf", sanitize_ops=custom_ops)
+    >>> mols = list(supplier)
+    
+    >>> # Access by index
+    >>> supplier = CustomSDMolSupplier("molecules.sdf")
+    >>> mol = supplier[5]  # Get 6th molecule
+    
+    >>> # No sanitization at all
+    >>> supplier = CustomSDMolSupplier("molecules.sdf", sanitize=False)
     """
-    return Chem.SDMolSupplier(mols_filepath, removeHs=remove_hs, sanitize=sanitize, strictParsing=strict_parsing)
+    
+    def __init__(
+        self, 
+        filepath, 
+        remove_hs=False, 
+        sanitize=True, 
+        sanitize_ops=SANITIZE_DEFAULT_OPS,
+        strict_parsing=False
+    ):
+        self.filepath = filepath
+        self.remove_hs = remove_hs
+        self.sanitize = sanitize
+        self.sanitize_ops = sanitize_ops
+        self.strict_parsing = strict_parsing
+        
+        # Create the underlying supplier (always with sanitize=False)
+        # We'll handle sanitization ourselves for full control
+        self._supplier = Chem.SDMolSupplier(
+            filepath,
+            removeHs=remove_hs,
+            sanitize=False,
+            strictParsing=strict_parsing
+        )
+    
+    def __iter__(self):
+        """Iterate over molecules with custom sanitization."""
+        for mol in self._supplier:
+            yield self._process_molecule(mol)
+    
+    def __getitem__(self, idx):
+        """Get a specific molecule by index with custom sanitization."""
+        mol = self._supplier[idx]
+        return self._process_molecule(mol)
+    
+    def __len__(self):
+        """Return the number of molecules in the file."""
+        return len(self._supplier)
+    
+    def _process_molecule(self, mol):
+        """Apply custom sanitization and processing to a molecule."""
+        if mol is None:
+            return None
+        
+        # Apply custom sanitization
+        if self.sanitize:
+            try:
+                Chem.SanitizeMol(mol, sanitizeOps=self.sanitize_ops)
+            except Exception as e:
+                logger.debug(f"Sanitization failed: {e}")
+                return None
+        
+        return mol
 
 
 #maryam the data agugmentation goes here
@@ -278,7 +356,7 @@ class RandomFlipMolTransform:
                 
         
         
-def convert_xyz_to_sdf(input_path, output_sdf=None):
+def convert_to_sdf(input_path, output_sdf=None):
     """
     Converts from atom coordinates (.xyz supported) to .sdf, using OpenBabel.
     
@@ -288,7 +366,7 @@ def convert_xyz_to_sdf(input_path, output_sdf=None):
         base_name = os.path.basename(os.path.normpath(input_path))
         output_sdf = p2m.TEMP_DIR / f"{base_name}_converted.sdf"
     
-    # Ensure we pass a string path to pybel (OpenBabel expects a std::string)
+    # Ensure we pass a string path to pybel (OpenBabel expects a string)
     output_sdf = str(output_sdf)
     
     if os.path.isdir(input_path):

@@ -8,7 +8,7 @@ from rdkit import Chem
 from tqdm import tqdm
 from pharmacophore2mol.data.voxelizer import Voxelizer, get_frag_count, fragment_voxel_grid
 from pharmacophore2mol.data.pharmacophore import Pharmacophore, PHARMACOPHORE_CHANNELS
-from pharmacophore2mol.data.utils import get_mol_supplier, get_translation_vector, translate_mol, mol_to_atom_dict
+from pharmacophore2mol.data.utils import CustomSDMolSupplier, get_translation_vector, translate_mol, mol_to_atom_dict
 from pharmacophore2mol.models.unet3d.config import config
 from pharmacophore2mol.models.unet3d.utils import get_next_multiple_of
 import bisect
@@ -37,7 +37,7 @@ class BaseDataset(Dataset):
         self.padding = padding
         self.transforms = transforms
         self.len = force_len
-        self.mol_supplier = self.get_mol_supplier()
+        self.mol_supplier = CustomSDMolSupplier(self.mols_filepath)
         self.n_mols = len(self.mol_supplier)
         self.n_samples = 0
         # self.index = [] #large structures like these cause workers to take quite long to launch, especially on windows, where there's a spawn() followed by pickling (ForkPickler.dump() seems to jump from milisseconds to 3 secods whenever I have an index larger than 3k elements). Use persistent workers to address this. in linux should not be a problem, but need to test
@@ -152,7 +152,7 @@ class BaseDataset(Dataset):
     
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.mol_supplier = get_mol_supplier()
+        self.mol_supplier = CustomSDMolSupplier(self.mols_filepath)
         
 
 

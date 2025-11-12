@@ -35,8 +35,8 @@ def evaluate_from_file(input_path):
     sdf_path = input_path
     if os.path.isdir(input_path) or input_path.lower().endswith('.xyz'):
         logger.info("Detected XYZ file(s). Converting to SDF using OpenBabel...")
-        from pharmacophore2mol.data.utils import convert_xyz_to_sdf
-        sdf_path = convert_xyz_to_sdf(input_path)
+        from pharmacophore2mol.data.utils import convert_to_sdf
+        sdf_path = convert_to_sdf(input_path)
         logger.info(f"Conversion complete. SDF saved at: {sdf_path}")
 
 

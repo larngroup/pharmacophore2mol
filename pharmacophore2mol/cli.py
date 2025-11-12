@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 @click.option('-q', '--quiet', is_flag=True, help='Suppress all output except errors')
 @click.pass_context
 def cli(ctx, verbose, quiet):
-    """Pharmacophore2Mol: Command Line Interface (CLI)
+    """
+    Pharmacophore2Mol: Command Line Interface (CLI)
     """
     # Ensure context object exists
     ctx.ensure_object(dict)
@@ -33,8 +34,7 @@ def cli(ctx, verbose, quiet):
 
 @cli.command()
 @click.argument('input_path', type=click.Path(exists=True, dir_okay=True, readable=True))
-@click.pass_context
-def evaluate(ctx, input_path):
+def evaluate(input_path):
     """
     Evaluate molecules from SDF or XYZ file(s).
     
@@ -46,57 +46,46 @@ def evaluate(ctx, input_path):
         >>> p2m evaluate molecules.sdf
 
     """
-    from pharmacophore2mol.metrics.utils import evaluate_from_file
+    from .metrics.utils import evaluate_from_file
     
     logger.debug(f"Starting evaluation for: {input_path}")
     
-    # Run evaluation
-    results = evaluate_from_file(
-        input_path=input_path,
-    )
-
+    results = evaluate_from_file(input_path)
     results.print_summary()
+    
     logger.debug("Evaluation complete")
 
 
 @cli.command()
 @click.argument('input_path', type=click.Path(exists=True, dir_okay=True, readable=True))
-@click.argument('output_path', type=click.Path(dir_okay=False, writable=True))
-@click.pass_context
-def clean_data(ctx, input_path, output_path):
+@click.argument('output_path', type=click.Path(writable=True))
+@click.option('--keep-disconnected', is_flag=True, help='Keep molecules with disconnected fragments')
+@click.option('--keep-unstable', is_flag=True, help='Ignore molecular stability checks')
+def clean(input_path, output_path, keep_disconnected, keep_unstable):
     """
-    Clean molecule data by removing invalid and nonstable molecules from SDF, PDB, MOL, MOL2 or even XYZ file(s).
-    Compacts it all to a single SDF file, ready to use.
-    Automatically converts XYZ to SDF using OpenBabel if needed.
+    Clean molecule dataset by removing invalid molecules.
+    
+    Removes molecules that fail rdkit parsing or have deeper structural issues (valence, formal charges, disconnected components).
+    Consolidates multiple input files into a single output SDF.
+    Supports SDF, XYZ, MOL2, PDB formats (single or multi-file).
     
     Examples:
-
-        >>> p2m clean-data sdf_dir cleaned.sdf
-
-    """
-    from pharmacophore2mol.data.utils import convert_xyz_to_sdf
-    from rdkit import Chem
-    # Convert if needed
-    sdf_path = input_path
-    if os.path.isdir(input_path) or input_path.lower().endswith('.xyz'):
-        logger.info("Detected XYZ file(s). Converting to SDF using OpenBabel...")
-        sdf_path = convert_xyz_to_sdf(input_path)
-        logger.info(f"Conversion complete. SDF saved at: {sdf_path}. Proceeding...")
-
-    # # Load molecules
-    # suppl = Chem.SDMolSupplier(sdf_path, removeHs=False, sanitize=False, strictParsing=False)
     
-    # # Filter valid molecules
-    # valid_mols = [mol for mol in suppl if mol is not None]
+        p2m clean molecules.sdf cleaned.sdf
+        
+        p2m clean some/dir/with/files/ cleaned.sdf
 
-    # # Determine output path
-    # if output_path is None:
-    #     output_path = os.path.splitext(sdf_path)[0] + "_cleaned.sdf"
+        p2m clean molecules.sdf cleaned.sdf --keep-disconnected
+    """
+    from pharmacophore2mol.data.preprocessing import clean_molecules
 
-    # # Save cleaned SDF
-    # writer = Chem.SDWriter(output_path)
-    # for mol in valid_mols:
-    #     writer.write(mol)
-    # writer.close()
+    logger.debug(f"Starting cleaning: {input_path} to {output_path}")
 
-    # logger.info(f"Cleaned data saved to {output_path} with {len(valid_mols)} valid molecules.")
+    num_valid = clean_molecules(
+        input_path=input_path,
+        output_path=output_path,
+        remove_disconnected=not keep_disconnected,
+        only_stable=not keep_unstable
+    )
+
+    logger.info(f"Cleaning complete: {num_valid} valid molecules saved")
