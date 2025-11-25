@@ -109,3 +109,4 @@ for _ in range(10000):
     clone = copy.deepcopy(tensor)
 end_time = perf_counter()
 print(f"Deepcopy:\t{end_time - start_time} seconds")
+
