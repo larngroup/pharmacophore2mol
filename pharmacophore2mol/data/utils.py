@@ -23,7 +23,6 @@ def suppress_openbabel_warnings():
     Only suppresses if logging level is INFO or higher (not DEBUG).
     """
     current_log_level = logging.getLogger().getEffectiveLevel()
-    
     if current_log_level > logging.DEBUG:
         # Suppress OpenBabel C++ stderr output by redirecting file descriptor
         import tempfile
@@ -43,6 +42,54 @@ def suppress_openbabel_warnings():
             # Restore original stderr
             os.dup2(old_stderr_fd, stderr_fd)
             os.close(old_stderr_fd)
+    else:
+        # In verbose/debug mode, don't suppress anything
+        yield
+
+
+@contextlib.contextmanager
+def suppress_rdkit_warnings():
+    """
+    Context manager to suppress RDKit C++ warnings and messages.
+    Only suppresses if logging level is INFO or higher (not DEBUG).
+    
+    Disables all RDKit logs using rdBase.DisableLog('rdApp.*') and also
+    redirects stdout/stderr to suppress warnings from rdDetermineBonds (Hueckel).
+    
+    Example:
+        >>> with suppress_rdkit_warnings():
+        ...     Chem.SanitizeMol(mol)
+    """
+    from rdkit import rdBase
+    
+    current_log_level = logging.getLogger().getEffectiveLevel()
+    
+    if current_log_level > logging.DEBUG:
+        # Disable all RDKit logs
+        rdBase.DisableLog('rdApp.*')
+        
+        # Also redirect stdout/stderr for Hueckel warnings
+        # stdout_fd = sys.stdout.fileno()
+        stderr_fd = sys.stderr.fileno()
+        # old_stdout_fd = os.dup(stdout_fd)
+        old_stderr_fd = os.dup(stderr_fd)
+        
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        # os.dup2(devnull_fd, stdout_fd)
+        os.dup2(devnull_fd, stderr_fd)
+        os.close(devnull_fd)
+        
+        try:
+            yield
+        finally:
+            # Restore stdout/stderr
+            # os.dup2(old_stdout_fd, stdout_fd)
+            os.dup2(old_stderr_fd, stderr_fd)
+            # os.close(old_stdout_fd)
+            os.close(old_stderr_fd)
+            
+            # Re-enable all RDKit logs
+            rdBase.EnableLog('rdApp.*')
     else:
         # In verbose/debug mode, don't suppress anything
         yield
@@ -152,7 +199,8 @@ class CustomSDMolSupplier:
         # Apply custom sanitization
         if self.sanitize:
             try:
-                Chem.SanitizeMol(mol, sanitizeOps=self.sanitize_ops)
+                with suppress_rdkit_warnings():
+                    Chem.SanitizeMol(mol, sanitizeOps=self.sanitize_ops)
             except Exception as e:
                 logger.debug(f"Sanitization failed: {e}")
                 return None
@@ -307,11 +355,12 @@ class RandomRotateMolTransform:
         return Rz @ Ry @ Rx
         
 
-    def __call__(self, mol: Chem.Mol) -> Chem.Mol:
+    def __call__(self, mol: Chem.Mol, center: tuple=None) -> Chem.Mol:
         # Get the geometric center of the molecule
         conf = mol.GetConformer(0)
         coords = conf.GetPositions()
-        center = np.mean(coords, axis=0) #we can use the center of mass, but keep in mind this will translate the molecule a bit due to 
+        if center is None:
+            center = np.mean(coords, axis=0) #we can use the center of mass, but keep in mind this will translate the molecule a bit due to 
         angles = np.random.uniform(0, [self.x, self.y, self.z])
         # Rotate the molecule around the center of mass
         rotation_matrix = self._get_rotation_matrix(angles)
