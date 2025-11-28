@@ -70,7 +70,6 @@ def smart_copy(obj):
 start_time = perf_counter()
 for _ in range(10000):
     mol = smart_copy(mol_supplier[0])
-
 end_time = perf_counter()
 print(f"RDKit:\t\t{end_time - start_time} seconds")
 #copy with deepcopy
@@ -81,7 +80,7 @@ end_time = perf_counter()
 print(f"Deepcopy:\t{end_time - start_time} seconds")
 
 
-
+print("Copying large numpy array:")
 array = np.random.rand(1000, 1000)
 #copy with smart_copy
 start_time = perf_counter()
@@ -96,6 +95,8 @@ for _ in range(10000):
 end_time = perf_counter()
 print(f"Deepcopy:\t{end_time - start_time} seconds")
 
+
+print("Copying large tensor:")
 tensor = torch.rand(1000, 1000)
 #copy with smart_copy
 start_time = perf_counter()
@@ -109,4 +110,37 @@ for _ in range(10000):
     clone = copy.deepcopy(tensor)
 end_time = perf_counter()
 print(f"Deepcopy:\t{end_time - start_time} seconds")
+
+
+print("Copying list of tensors:")
+list_of_tensors = [torch.rand(100, 100) for _ in range(100)]
+#copy with smart_copy
+start_time = perf_counter()
+for _ in range(1000):
+    clone = smart_copy(list_of_tensors)
+end_time = perf_counter()
+print(f"smart:\t\t{end_time - start_time} seconds")
+#copy with deepcopy
+start_time = perf_counter()
+for _ in range(1000):
+    clone = copy.deepcopy(list_of_tensors)
+end_time = perf_counter()
+print(f"Deepcopy:\t{end_time - start_time} seconds")
+
+
+print("Copying dict of numpy arrays:")
+dict_of_arrays = {f"arr_{i}": np.random.rand(100, 100) for i in range(100)}
+#copy with smart_copy
+start_time = perf_counter()
+for _ in range(1000):
+    clone = smart_copy(dict_of_arrays)
+end_time = perf_counter()
+print(f"smart:\t\t{end_time - start_time} seconds")
+#copy with deepcopy
+start_time = perf_counter()
+for _ in range(1000):
+    clone = copy.deepcopy(dict_of_arrays)
+end_time = perf_counter()
+print(f"Deepcopy:\t{end_time - start_time} seconds")
+
 
