@@ -249,11 +249,28 @@ class Node(Dataset, metaclass=NodeMeta):
         # This raises the error at runtime (as a backup), but the __init__ check should catch it first.
         raise NotImplementedError
     
-    def _get(self, index, context):
-        #check cache
+    def _resolve_parent(self, parent, index, context):
+        """
+        Helper to resolve fetching between Nodes (recursion) and Datasets (getitem).
+        Handles caching logic as well, both for Nodes and "dumb" Datasets.
+        """
+        #check cache first
         cache_key = (id(self), index)
         if cache_key in context:
             return context[cache_key]
+
+        if isinstance(parent, Node):
+            # keep the recursion and cache context alive
+            result = parent._get(index, context)
+        else:
+            #standard Dataset (stop recursion, just grab data)
+            result = parent[index]
+
+        context[cache_key] = result  #write to cache
+        return result
+
+
+    def _get(self, index, context):
         
         sink_index = context.get('sink_index', index)
         call_id = context.get('call_id', 0) #sorta redundant and silent fail but wtv
@@ -272,7 +289,7 @@ class Node(Dataset, metaclass=NodeMeta):
         # list of parents (ordered)
         if isinstance(self.parents, list):
             # unpack with * so forward receives (idx, arg1, arg2...)
-            inputs = [p._get(index, context) for p in self.parents]
+            inputs = [self._resolve_parent(p, index, context) for p in self.parents]
             if self.copy_inputs:
                 inputs = [smart_copy(x) for x in inputs]
             f_args = inputs
@@ -280,7 +297,7 @@ class Node(Dataset, metaclass=NodeMeta):
         # named parents (dict)
         elif isinstance(self.parents, dict):
             # unpack with ** so forward receives (idx, a=1, b=2...)
-            inputs = {k: v._get(index, context) for k, v in self.parents.items()}
+            inputs = {k: self._resolve_parent(v, index, context) for k, v in self.parents.items()}
             if self.copy_inputs:
                 inputs = {k: smart_copy(v) for k, v in inputs.items()}
             f_kwargs = inputs
@@ -288,7 +305,7 @@ class Node(Dataset, metaclass=NodeMeta):
         # single parent (linear chain)
         elif isinstance(self.parents, Node):
             # direct pass-through
-            inputs = self.parents._get(index, context)
+            inputs = self._resolve_parent(self.parents, index, context)
             if self.copy_inputs:
                 inputs = smart_copy(inputs)
             f_args = [inputs]
@@ -296,7 +313,6 @@ class Node(Dataset, metaclass=NodeMeta):
         # source node has no parents
         result = self.forward(index, *f_args, **f_kwargs, **kwargs)
 
-        context[cache_key] = result #write to cache
         return result
     
     def _compute_length(self): #TODO: check in full
@@ -407,7 +423,7 @@ if __name__ == "__main__":
             return self.data[index]
         
         def load_data(self):
-            time.sleep(0.1)  # Simulate a delay in loading data
+            # time.sleep(0.1)  # Simulate a delay in loading data
             return self.data
         
 
