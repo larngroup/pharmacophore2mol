@@ -1,9 +1,13 @@
+import warnings
 from rdkit import Chem
 from functools import lru_cache
 from time import perf_counter
 import copy
 import torch
 import numpy as np
+
+_UNSUPPORTED_TYPE_CACHE = set()
+_CUSTOM_COPIERS = {}
 
 mol_supplier = Chem.SDMolSupplier("./dump/original.sdf")
 
@@ -28,43 +32,72 @@ def smart_copy(obj):
     Creates a deep copy of specific high-perf objects efficiently.
     Falls back to deepcopy for unknown types.
     """
-    # 1. RDKit Molecules (The specific C++ pointer issue)
-    # The fastest way to copy a Mol is the copy constructor
-    if isinstance(obj, Chem.Mol):
+    # rdkit mol objects (the specific c++ pointer issue)
+    if Chem is not None and isinstance(obj, Chem.Mol):
         return Chem.Mol(obj)
     
-    # 2. PyTorch Tensors
-    # We use clone() to get new memory. 
-    # detatch() is implied if you want to break gradient tracking, 
-    # but for data loading, clone is usually sufficient.
-    elif isinstance(obj, torch.Tensor):
-        return obj.clone()
+    # torch tensors
+    # elif torch is not None and isinstance(obj, torch.Tensor):
+    #     return obj.clone()
 
-    # 3. NumPy Arrays
-    elif isinstance(obj, np.ndarray):
+    # numpy arrays
+    elif np is not None and isinstance(obj, np.ndarray):
         return obj.copy()
-
-    # 4. Lists/Tuples (Recursive check)
-    # We must recurse because a list might contain Mols
+    
+    # no need to copy immutable primitives, safe to return as is
+    elif isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    
+    obj_type = type(obj)
+    if obj_type in _CUSTOM_COPIERS:
+        return _CUSTOM_COPIERS[obj_type](obj)
+    
+    # lists/tuples/dicts  (recursive check)
+    # must recurse because a list might contain copy-optimized objects like Mols
     elif isinstance(obj, list):
         return [smart_copy(x) for x in obj]
     elif isinstance(obj, tuple):
         return tuple(smart_copy(x) for x in obj)
-    
-    # 5. Dictionaries (Recursive check)
     elif isinstance(obj, dict):
         return {k: smart_copy(v) for k, v in obj.items()}
 
-    # 6. Immutable primitives (str, int, float, bool)
-    # No need to copy, safe to return as is
-    elif isinstance(obj, (int, float, str, bool, type(None))):
-        return obj
-
-    # 7. Fallback for custom objects
-    else:
-        raise TypeError(f"Unsupported type for smart_copy: {type(obj)}") #temporary raise
-        return copy.deepcopy(obj)
     
+    #fallback for custom objects, slow but safe
+    else:
+        if obj_type not in _UNSUPPORTED_TYPE_CACHE:
+            _UNSUPPORTED_TYPE_CACHE.add(obj_type)
+            
+            msg = (
+                f"\n[Performance Warning] 'smart_copy' encountered unknown type '{obj_type.__name__}' "
+                f"and is falling back to slow 'copy.deepcopy'.\n"
+                f"If this type is immutable you can safely set bypass_copy=True in the node constructor.\n"
+                f"If not, to fix this, choose one of the following:\n"
+                f"  (Recommended) Register a fast copier for safety and speed. Example:\n"
+                f"  >> register_copier({obj_type.__name__}, lambda x: x.clone())\n"
+                f"  (Alternative) Disable copying (bypass_copy=True) for this node and implement custom copying inside the forward method. Example:\n"
+                f"  >> MyNode(..., bypass_copy=True)"
+            )
+            
+            warnings.warn(
+                msg,
+                category=UserWarning,
+                stacklevel=2 
+            )
+        return copy.deepcopy(obj)
+
+
+def register_copier(cls, copier_fn):
+    """
+    Register a fast copy function for a custom class.
+    
+    Args:
+        cls: The class type (e.g., MyGraphObject)
+        copier_fn: A function taking one argument (the object) and returning a copy.
+    
+    Example:
+        register_copier(MyGraph, lambda x: x.clone())
+    """
+    _CUSTOM_COPIERS[cls] = copier_fn
 
 #copy with rdkit
 start_time = perf_counter()
@@ -111,6 +144,7 @@ for _ in range(10000):
 end_time = perf_counter()
 print(f"Deepcopy:\t{end_time - start_time} seconds")
 
+register_copier(torch.Tensor, lambda x: x.clone())
 
 print("Copying list of tensors:")
 list_of_tensors = [torch.rand(100, 100) for _ in range(100)]

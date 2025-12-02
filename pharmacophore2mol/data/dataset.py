@@ -1,8 +1,4 @@
-"""
-This module is intended to provide dataset classes that adapt all functionality from the data package to PyTorch's Dataset class.
-It is structured as a collection of DatasetWrapper subclasses that are intended to be used as wrappers to add functionality as needed.
-DatasetWrapper is a thin wrapper around torch.utils.data.Dataset that adds no functionality by itself.
-"""
+from pharmacophore2mol.data.dag_dataset
 
 
 import logging
@@ -10,13 +6,7 @@ from torch.utils.data import Dataset
 from rdkit import Chem
 from tqdm import tqdm
 from collections.abc import Iterable
-
-from pharmacophore2mol.data.utils import (
-    CustomSDMolSupplier, 
-    get_translation_vector, 
-    translate_mol,
-    mol_to_atom_dict
-)
+from pharmacophore2mol.data.utils import CustomSDMolSupplier
 from pharmacophore2mol.data.voxelizer import Voxelizer, get_frag_count, fragment_voxel_grid
 from pharmacophore2mol.data.pharmacophore import Pharmacophore, PHARMACOPHORE_CHANNELS
 
