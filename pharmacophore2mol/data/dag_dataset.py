@@ -164,6 +164,24 @@ class Node(Dataset, metaclass=NodeMeta):
 
         return self._get(index, context_cache)
     
+    def __iter__(self):
+        """
+        Adds iterable support to the Node class.
+        This is done to allow IterableDataset-like subclasses, like IterableNode, as well as providing streaming capability to any possible DAG (pure Node or mixed with IterableDataset-like).
+        """
+        if self._len >= 0: #known length, map-style, random access possible
+            for idx in range(len(self)):
+                yield self[idx]
+        else:# _len < 0 means unknown length (prolly -1), so we just keep yielding until StopIteration is raised upstream
+            idx = 0
+            while True:
+                try:
+                    yield self[idx] #TODO: maybe should not call __getitem__ here?
+                    idx += 1
+                except IndexError:
+                    break
+        
+    
     @property
     def training(self):
         """
@@ -192,8 +210,8 @@ class Node(Dataset, metaclass=NodeMeta):
             "You cannot change 'salt' after initialization.\n"
             "The salt defines the node's identity. Changing it breaks synchronization with downstream nodes.\n"
             "If you wish to change the seed, please use the 'seed' parameter of __init__ instead."
-        
         )
+    
     def train(self):
         """
         Sets the dataset to training mode. Propagates the mode to all upstream nodes.
@@ -243,7 +261,7 @@ class Node(Dataset, metaclass=NodeMeta):
             Positional inputs from parents (if parents is list/Node).
         **kwargs :
             Keyword inputs from parents (if parents is dict) 
-            PLUS 'rngs' (if using random) 
+            PLUS 'seed' (if using random) 
             PLUS 'offset' (if using 1-to-Many).
         """
         # This raises the error at runtime (as a backup), but the __init__ check should catch it first.
@@ -275,7 +293,7 @@ class Node(Dataset, metaclass=NodeMeta):
         sink_index = context.get('sink_index', index)
         call_id = context.get('call_id', 0) #sorta redundant and silent fail but wtv
 
-        final_seed = (sink_index + self._salt + call_id) & 0xFFFFFFFFFFFFFFFF
+        final_seed = (sink_index + self._salt + call_id) & 0xFFFFFFFFFFFFFFFF #just to truncate to 64 bits, cuz usually RNGs use 64 bit uint seeds
 
         kwargs = {}
         #handle seed
@@ -303,7 +321,7 @@ class Node(Dataset, metaclass=NodeMeta):
             f_kwargs = inputs
             
         # single parent (linear chain)
-        elif isinstance(self.parents, Node):
+        elif isinstance(self.parents, (Node, Dataset)):
             # direct pass-through
             inputs = self._resolve_parent(self.parents, index, context)
             if self.copy_inputs:
@@ -338,6 +356,11 @@ class Node(Dataset, metaclass=NodeMeta):
             f"Expected Node, List[Node], or Dict[str, Node].\n"
             f"Got: {type(self.parents).__name__} ({self.parents})"
         )
+    
+
+
+class IterableNode(Node):
+    ...
     
 
 def smart_copy(obj: Any) -> Any:
@@ -410,6 +433,8 @@ def register_copier(cls, copier_fn):
 
 if __name__ == "__main__":
     import time
+    from torch.utils.data import Dataset as TorchDataset
+
     class MySourceNode(Node):
         def __init__(self, data):
             super().__init__()
@@ -423,7 +448,7 @@ if __name__ == "__main__":
             return self.data[index]
         
         def load_data(self):
-            # time.sleep(0.1)  # Simulate a delay in loading data
+            time.sleep(0.1)  # Simulate delay
             return self.data
         
 
@@ -436,16 +461,43 @@ if __name__ == "__main__":
             return x * self.factor
         
     class MyMergeNode(Node):
-        def __init__(self, parents):
-            super().__init__(parents=parents)
         
         def forward(self, index, x1, x2):
             return x1 + x2
 
-    # Example usage
+    print("--- Testing Standard Node DAG ---")
     source = MySourceNode(data=[1, 2, 3, 4, 5])
     transform = MyTransformNode(source, factor=10)
     transform2 = MyTransformNode(source, factor=2)
     merge = MyMergeNode(parents=[transform, transform2])
+    
     for i in range(len(transform)):
         print(f"Index {i}: {merge[i]}")
+
+    print("\n--- Testing Torch Dataset Compatibility ---")
+    
+    # A "dumb" standard PyTorch Dataset (mimics ImageFolder, TensorDataset, etc.)
+    class RawTorchDataset(TorchDataset):
+        def __init__(self, data):
+            self.data = data
+        def __len__(self):
+            return len(self.data)
+        def __getitem__(self, index):
+            return self.data[index]
+
+    # Initialize the raw dataset
+    raw_ds = RawTorchDataset(data=[100, 200, 300])
+
+    # Wrap it in a Node
+    # The Node should detect it's not a 'Node' instance and use standard __getitem__
+    # logic via _resolve_parent, while still applying caching.
+    adapter_node = MyTransformNode(raw_ds, factor=0.5)
+
+    for i in range(len(adapter_node)):
+        print(f"Index {i} (Raw {raw_ds[i]} * 0.5): {adapter_node[i]}")
+
+
+    print("\n--- Testing iterator support ---")
+
+    for idx, value in enumerate(merge):
+        print(f"Index {idx} via iterator: {value}")
