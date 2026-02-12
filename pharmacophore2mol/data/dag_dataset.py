@@ -121,6 +121,7 @@ class Node(Dataset, metaclass=NodeMeta):
     def __init__(self, parents=None, seed=None, bypass_copy=False):
         self.parents = parents if parents is not None else []
         self._training = True  #default mode is training
+        self._continue_on_error = False #default error handling mode is to raise exceptions
         self.copy_inputs = not bypass_copy
         self._len = -1 #sentinel value
 
@@ -175,6 +176,41 @@ class Node(Dataset, metaclass=NodeMeta):
                     f"FIX: Move '{name}' to the end of the argument list.\n"
                     f"EXAMPLE: def forward(self, parent_input, ..., {name})"
                 )
+            
+    @property
+    def continue_on_error(self):
+        """
+        Gets the current error handling mode.
+        If True, exceptions are caught and returned as FailedSample.
+        """
+        return self._continue_on_error
+    
+    @continue_on_error.setter
+    def continue_on_error(self, value):
+        """
+        Sets the error handling mode for this node AND propagates it 
+        to all upstream parent nodes recursively.
+        """
+        if not isinstance(value, bool):
+            raise ValueError(f"'continue_on_error' must be a boolean. Got: {type(value).__name__}")
+        self._set_continue_on_error_recursive(value, set())
+
+    def _set_continue_on_error_recursive(self, value, visited):
+        if id(self) in visited:
+            return
+        visited.add(id(self))
+        self._continue_on_error = value
+        parents = []
+        if isinstance(self.parents, list):
+            parents = self.parents
+        elif isinstance(self.parents, dict):
+            parents = self.parents.values()
+        elif isinstance(self.parents, Node):
+            parents = [self.parents]
+
+        for p in parents:
+            if isinstance(p, Node):
+                p._set_continue_on_error_recursive(value, visited)
 
     def __len__(self):
         return self._len
@@ -187,12 +223,29 @@ class Node(Dataset, metaclass=NodeMeta):
         # This context cache could be replaced by the simpler lru_cache decorator,
         # but that would make it harder to control the cache lifetime and scope,
         # and for wtv reason context dict cache benchmarks are faster.
-        
+
+
         # init
         context_cache = {}
         context_cache['index'] = index
 
-        return self._get(context_cache)
+        try:
+            ret = self._get(context_cache)
+            if ret is None:
+                return _FailedSample(index, error="None received, likely due to filtering")
+            
+        except Exception as e:
+            if self._continue_on_error:
+                msg = (
+                    f"Node '{self.__class__.__name__}' failed at index {index}. "
+                    f"Suppressing error and returning FailedSample.\n"
+                    f"Error details: {repr(e)}"
+                )
+                warnings.warn(msg, category=UserWarning, stacklevel=2)
+                return _FailedSample(index, error=e)
+            raise e
+        
+        return ret
     
     # def __iter__(self):
     #     """
@@ -333,8 +386,6 @@ class Node(Dataset, metaclass=NodeMeta):
         context[cache_key] = result  #write to cache
         return result
 
-    def _process_node(self, index, inputs, input_mode, extra_seed_salt):
-        ...
         
     def _get(self, context):
         
@@ -358,29 +409,54 @@ class Node(Dataset, metaclass=NodeMeta):
         # list of parents (ordered)
         if isinstance(self.parents, list):
             # unpack with * so forward receives (idx, arg1, arg2...)
-            inputs = [self._resolve_parent(p, context) for p in self.parents]
-            if self.copy_inputs:
-                inputs = [smart_copy(x) for x in inputs]
-            f_args = inputs
+            for p in self.parents:
+                parent_input = self._resolve_parent(p, context)
+                if parent_input is None:
+                    return None  # propagate None if any parent returns None
+                if self.copy_inputs:
+                    parent_input = smart_copy(parent_input)
+                f_args.append(parent_input)
             
         # named parents (dict)
         elif isinstance(self.parents, dict):
             # unpack with ** so forward receives (idx, a=1, b=2...)
-            inputs = {k: self._resolve_parent(v, context) for k, v in self.parents.items()}
-            if self.copy_inputs:
-                inputs = {k: smart_copy(v) for k, v in inputs.items()}
-            f_kwargs = inputs
+            for k, v in self.parents.items():
+                 parent_input = self._resolve_parent(v, context)
+                 if parent_input is None:
+                    return None  # propagate None if any parent returns None
+                 if self.copy_inputs:
+                    parent_input = smart_copy(parent_input)
+                 f_kwargs[k] = parent_input
             
+        # named parents (dict)
+        elif isinstance(self.parents, dict):
+            # unpack with ** so forward receives (idx, a=1, b=2...)
+            for k, v in self.parents.items():
+                 parent_input = self._resolve_parent(v, context)
+                 if parent_input is None:
+                    return None  # propagate None if any parent returns None
+                 if self.copy_inputs:
+                    parent_input = smart_copy(parent_input)
+                 f_kwargs[k] = parent_input
         # single parent (linear chain)
         elif isinstance(self.parents, (Node, Dataset)):
             # direct pass-through
-            inputs = self._resolve_parent(self.parents, context)
+            parent_input = self._resolve_parent(self.parents, context)
+            if parent_input is None:
+                return None  # propagate None if parent returns None
             if self.copy_inputs:
-                inputs = smart_copy(inputs)
-            f_args = [inputs]
-            
-        # source node has no parents
-        result = self.forward(*f_args, **f_kwargs, **kwargs)
+                parent_input = smart_copy(parent_input)
+            f_args = [parent_input]
+        
+        try:
+            result = self.forward(*f_args, **f_kwargs, **kwargs)
+        except Exception as e:
+            context_info_msg = f"Error in Node '{self.__class__.__name__}' (Salt/ID: {self._salt}) at index {index}.\n"
+            if len(e.args) > 0:
+                e.args = (context_info_msg + "\n" + str(e.args[0]),) + e.args[1:]
+            else:
+                e.args = (context_info_msg,)
+            raise e
 
         return result
     
@@ -452,6 +528,20 @@ class Node(Dataset, metaclass=NodeMeta):
 
 # class IterableNode(Node):
 #     ...
+
+class _FailedSample:
+    """
+    Wrapper for failed samples.
+    This is used to return the index of the failed sample, for further recovery, like replacement or drop.
+    Example situations include filtering, or, eventually, exceptions that are caught and intended to be ignored instead of causing the entire pipeline to crash.
+    """
+
+    def __init__(self, index, error=None):
+        self.index = index
+        self.error = error
+
+    def __repr__(self):
+        return f"_FailedSample(index={self.index}, error={repr(self.error)})"
     
 
 def smart_copy(obj: Any) -> Any:
@@ -522,6 +612,43 @@ def register_copier(cls, copier_fn):
     _CUSTOM_COPIERS[cls] = copier_fn
 
 
+
+class ReplacerCollate:
+    """
+    Collate function to replace failed samples with new ones, maintaining batch size.
+    This is used in the DataLoader to handle _FailedSample instances returned by nodes when continue_on_error=True or when filtering causes None propagation.
+    It detects the index of the failed sample and deterministically generates a new sample index to replace it, ensuring reproducibility.
+    """
+    def __init__(self, dataset, max_retries=1000):
+        self.dataset = dataset
+        self.max_retries = max_retries
+        self.RETRY_SALT = 0xBC58476D1CE4E5B9  # A fixed salt to mix with the failed index for generating replacement indices
+
+    def __call__(self, batch):
+        repaired_batch = []
+        for item in batch:
+            if isinstance(item, _FailedSample):
+                replacement = self._get_replacement(item.index)
+                repaired_batch.append(replacement)
+            else:
+                repaired_batch.append(item)
+        return repaired_batch
+
+    def _get_replacement(self, failed_index):
+        """
+        Deterministically finds a replacement for a failed index, until max_retries is reached.
+        """
+        for attempt in range(self.max_retries):
+            new_index = Node._mix_seeds(failed_index, self.RETRY_SALT, attempt)# % len(self.dataset)
+            try:
+                sample = self.dataset[new_index]
+                if not isinstance(sample, _FailedSample):
+                    return sample
+            except Exception:
+                continue  # If the replacement also fails, try the next one
+        raise RuntimeError(f"Failed to get a valid replacement for index {failed_index} after {self.max_retries} attempts.")
+
+
 if __name__ == "__main__":
     import time
     from torch.utils.data import Dataset as TorchDataset
@@ -536,6 +663,7 @@ if __name__ == "__main__":
         
         def forward(self, index):
             self.load_data()
+            index = index % len(self.data)
             return self.data[index]
         
         def load_data(self):
@@ -548,13 +676,14 @@ if __name__ == "__main__":
             super().__init__(parents=parent)
             self.factor = factor
         
-        def forward(self, index, x):
+        def forward(self, x):
             return x * self.factor
         
     class MyMergeNode(Node):
         
-        def forward(self, index, x1, x2):
+        def forward(self, x1, x2):
             return x1 + x2
+        
 
     print("--- Testing Standard Node DAG ---")
     source = MySourceNode(data=[1, 2, 3, 4, 5])
@@ -592,3 +721,36 @@ if __name__ == "__main__":
 
     for idx, value in enumerate(merge):
         print(f"Index {idx} via iterator: {value}")
+        if idx >=10:  #just to avoid infinite loops like intended in some scenarios
+            break
+
+    print("\n--- Testing filtering with None propagation ---")
+    class FilterNode(Node):
+        def forward(self, x):
+            if x % 40 == 0:
+                return x
+            else:
+                return None  # This sample will be filtered out
+    filter_node = FilterNode(parents=merge)
+    for i in range(len(filter_node)):
+        print(f"Index {i} after filter: {filter_node[i]}")
+
+    print("\n--- Testing error handling with continue_on_error=True ---")
+    class ErrorNode(Node):
+        def forward(self, x):
+            if x == 60:
+                raise ValueError("Intentional error for testing.")
+            return x
+    error_node = ErrorNode(parents=merge)
+    error_node.continue_on_error = True  # Enable error handling mode
+    for i in range(len(error_node)):
+        print(f"Index {i} after error node: {error_node[i]}")
+
+    print("\n--- Testing ReplacerCollate ---")
+    from torch.utils.data import DataLoader
+    # Create a dataset with some failures
+    filter_after_error = FilterNode(parents=error_node)
+    filter_after_error.continue_on_error = True
+    dl = DataLoader(filter_after_error, batch_size=1, collate_fn=ReplacerCollate(filter_after_error), shuffle=False)
+    for batch in enumerate(dl):
+        print(f"Batch: {batch}")
