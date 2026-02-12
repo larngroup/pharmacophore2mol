@@ -1,4 +1,4 @@
-# @RaulSofia, 2024, rauljcsofia@gmail.com
+# @RaulSofia, 2025, rauljcsofia@gmail.com
 # i am formatting this as a package instead of just a copy-paste module just in case
 """
 Modular DAG Data Pipeline for PyTorch
@@ -13,7 +13,7 @@ To use and create a DAG pipeline, do as follows:
 Subclass ``Node`` to create custom processing nodes. These will be the operations in your pipeline.
 
 Every operation should be deterministic and stateless, relying only on input data and parameters. If
-you ignore this, then it will work the same, you just wont be able to synchronize random operations
+you ignore this, it still works, you just wont be able to synchronize random operations
 across branches, like applying the same rotation to a image and to its mask in parallel branches.
 
 Every operation should implement a ``forward`` method. #TODO: expand on this
@@ -27,6 +27,7 @@ import inspect
 import random
 from typing import Any
 import warnings
+import itertools
 
 from torch.utils.data import Dataset
 import torch
@@ -74,7 +75,7 @@ class NodeMeta(type(Dataset)):
             if cls.forward == base_node.forward:
                 raise NotImplementedError(
                     f"Node '{cls.__name__}' is missing the `forward` method.\n"
-                    f"You must implement `forward(self, index, ...)`."
+                    f"You must implement `forward(self, ...)`."
                 )
 
             # len for source nodes
@@ -135,12 +136,45 @@ class Node(Dataset, metaclass=NodeMeta):
         else:
             self._salt = random.randint(0, (1 << 64) - 1)  #unique salt for this node instance
 
+        #signature checks and magic injection
         sig = inspect.signature(self.forward)
         params = sig.parameters
         has_kwargs = any(p.kind == p.VAR_KEYWORD for p in params.values())
         
         self._pass_seed = has_kwargs or 'seed' in params
+        self._pass_index = has_kwargs or 'index' in params
+
+        self._validate_forward_signature(sig)
+
         self._is_initialized = True
+
+    def _validate_forward_signature(self, sig):
+        """
+        Ensures 'index' and 'seed' are not defined in positions that would 
+        capture parent inputs, causing a TypeError at runtime.
+        """
+        num_parents = 0
+        if isinstance(self.parents, list):
+            num_parents = len(self.parents)
+        elif isinstance(self.parents, (Node, Dataset)):
+            num_parents = 1
+        #if parents is a dict, inputs are passed as kwargs, so no collision risk.
+        
+        if num_parents == 0: #no risk
+            return
+
+        param_names = list(sig.parameters.keys())
+        
+        danger_zone = param_names[:num_parents] #self is already excluded automatically by inspect
+        
+        for i, name in enumerate(danger_zone):
+            if name in ('index', 'seed'):
+                raise TypeError(
+                    f"\n[Signature Error] In Node '{self.__class__.__name__}', the argument '{name}' "
+                    f"is defined at position {i+1} (arg '{name}'), but this slot is reserved for parent input #{i+1}.\n"
+                    f"FIX: Move '{name}' to the end of the argument list.\n"
+                    f"EXAMPLE: def forward(self, parent_input, ..., {name})"
+                )
 
     def __len__(self):
         return self._len
@@ -156,36 +190,28 @@ class Node(Dataset, metaclass=NodeMeta):
         
         # init
         context_cache = {}
-        context_cache['sink_index'] = index
-        context_cache['call_id'] = 0
+        context_cache['index'] = index
 
-        if self._training:
-            context_cache['call_id'] = random.randint(0, (1 << 64) - 1)  #unique per fetch call in training mode
-
-        return self._get(index, context_cache)
+        return self._get(context_cache)
     
-    def __iter__(self):
-        """
-        Adds iterable support to the Node class.
-        This is done to allow IterableDataset-like subclasses, like IterableNode, as well as providing streaming capability to any possible DAG (pure Node or mixed with IterableDataset-like).
-        """
-        if self._len >= 0: #known length, map-style, random access possible
-            for idx in range(len(self)):
-                yield self[idx]
-        else:# _len < 0 means unknown length (prolly -1), so we just keep yielding until StopIteration is raised upstream
-            idx = 0
-            while True:
-                try:
-                    yield self[idx] #TODO: maybe should not call __getitem__ here?
-                    idx += 1
-                except IndexError:
-                    break
+    # def __iter__(self):
+    #     """
+    #     Adds iterable support to the Node class.
+    #     This is done to allow IterableDataset-like subclasses, like IterableNode, as well as providing streaming capability to any possible DAG (pure Node or mixed with IterableDataset-like).
         
+    #     Also, no diamond graph issues cause iterators are shared and cached as tee'd iterators.
+    #     """
+        
+    #     context = {}
+    #     return self._get_stream(context)
     
     @property
     def training(self):
         """
         Read-only view of the current dataset mode.
+
+        Defaults to True (training mode). This flag can be used by nodes to adjust their behavior accordingly.
+        For example, a node might apply random augmentations only in training mode, or bypass them in eval mode.
         """
         return self._training
     
@@ -212,13 +238,51 @@ class Node(Dataset, metaclass=NodeMeta):
             "If you wish to change the seed, please use the 'seed' parameter of __init__ instead."
         )
     
+    def forward(self, *args, **kwargs):
+        """
+        The node's processing logic (the actual operation).
+        Subclasses must override this. 
+        
+        Parameters
+        ----------
+        *args :
+            Positional inputs from parents (if parents is list/Node).
+        **kwargs :
+            Keyword inputs from parents (if parents is dict) 
+            
+            PLUS 'seed' (if using randomness, it is strongly recomended that this is the single source of it, for synchronization and determinism). 
+
+        Returns
+        -------
+        The processed output for this sample index, that will be delivered to downstream nodes.
+        
+        Example
+        -------
+        ```python
+        class MyLoaderNode(Node):
+            def forward(self, x, seed=None):
+                # x is the input from the parent node. here could be a file path.
+                # it could also be several inputs if there are several parents (for example, forward(..., x1, x2, ..., seed))
+                file_contents = open(x).read()
+                # if you need randomness, use the provided seed to create a local RNG or just use it directly
+                index = seed % len(file_contents)  # example of using the seed for deterministic behavior
+                return file_contents[index]
+        ```
+
+        """
+        # This raises the error at runtime (as a backup), but the __init__ check should catch it first.
+        raise NotImplementedError(
+            f"Node '{self.__class__.__name__}' is missing the `forward` method.\n"
+            f"You must implement `forward(self, ...)`."
+        )
+    
     def train(self):
         """
         Sets the dataset to training mode. Propagates the mode to all upstream nodes.
 
-        In this mode, every fetch call to the dataset is independent, including calls to the same index.
-        For example, rng-dependent ops like random augmentations will be applied independently on each fetch, even if the index is the same.
-        This does not, however, break synchronization across branches if using a shared seed or Node as a seed.
+        This is the default mode. It just sets a boolean flag self.training = True, so that
+        operations that behave differently in training vs eval can check it and adjust their behavior accordingly.
+        For example, a node might apply random augmentations only in training mode, or bypass them in eval mode.
         
         """
         self._training = True
@@ -227,9 +291,8 @@ class Node(Dataset, metaclass=NodeMeta):
     def eval(self):
         """
         Sets the dataset to evaluation mode. Propagates the mode to all upstream nodes.
-
-        In this mode, every fetch call to the dataset for the same index will return the same result.
-        Rng-dependent ops like random augmentations will be consistent across multiple fetches of the same index.
+        
+        Just a boolean flag self.training = False. In this mode, nodes can adjust their behavior accordingly, for example by bypassing random augmentations.
         """
         self._training = False
         self._propagate_mode('eval')
@@ -248,30 +311,13 @@ class Node(Dataset, metaclass=NodeMeta):
             if hasattr(p, mode): #although all nodes should have it, if using non-node datasets upstream this avoids errors, like torch's Datasets
                 getattr(p, mode)()
 
-    def forward(self, index, *args, **kwargs):
-        """
-        The node's processing logic (the actual operation).
-        Subclasses must override this. 
-        
-        Parameters
-        ----------
-        index : int
-            The global sample index.
-        *args :
-            Positional inputs from parents (if parents is list/Node).
-        **kwargs :
-            Keyword inputs from parents (if parents is dict) 
-            PLUS 'seed' (if using random) 
-            PLUS 'offset' (if using 1-to-Many).
-        """
-        # This raises the error at runtime (as a backup), but the __init__ check should catch it first.
-        raise NotImplementedError
     
-    def _resolve_parent(self, parent, index, context):
+    def _resolve_parent(self, parent, context):
         """
         Helper to resolve fetching between Nodes (recursion) and Datasets (getitem).
         Handles caching logic as well, both for Nodes and "dumb" Datasets.
         """
+        index = context['index']
         #check cache first
         cache_key = (id(self), index)
         if cache_key in context:
@@ -279,7 +325,7 @@ class Node(Dataset, metaclass=NodeMeta):
 
         if isinstance(parent, Node):
             # keep the recursion and cache context alive
-            result = parent._get(index, context)
+            result = parent._get(context)
         else:
             #standard Dataset (stop recursion, just grab data)
             result = parent[index]
@@ -287,18 +333,23 @@ class Node(Dataset, metaclass=NodeMeta):
         context[cache_key] = result  #write to cache
         return result
 
-
-    def _get(self, index, context):
+    def _process_node(self, index, inputs, input_mode, extra_seed_salt):
+        ...
         
-        sink_index = context.get('sink_index', index)
-        call_id = context.get('call_id', 0) #sorta redundant and silent fail but wtv
+    def _get(self, context):
+        
+        index = context['index']
 
-        final_seed = (sink_index + self._salt + call_id) & 0xFFFFFFFFFFFFFFFF #just to truncate to 64 bits, cuz usually RNGs use 64 bit uint seeds
-
+        node_seed = self._mix_seeds(index, self._salt) #safe mixing, breaks correlations caused by bad code in the forward method
+                                   
         kwargs = {}
         #handle seed
         if self._pass_seed:
-            kwargs['seed'] = final_seed
+            kwargs['seed'] = node_seed
+
+        #handle index
+        if self._pass_index:
+            kwargs['index'] = index
 
         #fetch inputs from parents
         inputs = None
@@ -307,7 +358,7 @@ class Node(Dataset, metaclass=NodeMeta):
         # list of parents (ordered)
         if isinstance(self.parents, list):
             # unpack with * so forward receives (idx, arg1, arg2...)
-            inputs = [self._resolve_parent(p, index, context) for p in self.parents]
+            inputs = [self._resolve_parent(p, context) for p in self.parents]
             if self.copy_inputs:
                 inputs = [smart_copy(x) for x in inputs]
             f_args = inputs
@@ -315,7 +366,7 @@ class Node(Dataset, metaclass=NodeMeta):
         # named parents (dict)
         elif isinstance(self.parents, dict):
             # unpack with ** so forward receives (idx, a=1, b=2...)
-            inputs = {k: self._resolve_parent(v, index, context) for k, v in self.parents.items()}
+            inputs = {k: self._resolve_parent(v, context) for k, v in self.parents.items()}
             if self.copy_inputs:
                 inputs = {k: smart_copy(v) for k, v in inputs.items()}
             f_kwargs = inputs
@@ -323,13 +374,13 @@ class Node(Dataset, metaclass=NodeMeta):
         # single parent (linear chain)
         elif isinstance(self.parents, (Node, Dataset)):
             # direct pass-through
-            inputs = self._resolve_parent(self.parents, index, context)
+            inputs = self._resolve_parent(self.parents, context)
             if self.copy_inputs:
                 inputs = smart_copy(inputs)
             f_args = [inputs]
             
         # source node has no parents
-        result = self.forward(index, *f_args, **f_kwargs, **kwargs)
+        result = self.forward(*f_args, **f_kwargs, **kwargs)
 
         return result
     
@@ -358,9 +409,49 @@ class Node(Dataset, metaclass=NodeMeta):
         )
     
 
+    #just as a note about seeding mechanism here, in case you think 64 bit is not enough:
+    #with this design, you can effectively turn any dataset into at most 2^64 (10^19) unique samples.
+    #that is already way more than any model ever trained.
+    #technically, if you really wanted, a clever mechanism to support larger seeds, like 256 bit
+    #could be implemented. we still need each node to receive a 64 bit seed due to library requirements
+    #but we could have a master seed (>256 bit) from where we extract 64 of those bits (using the salt of the node)
+    # and then mix with the salt, finally providing it to the subclass for processing.
+    # This way, we would have a virtually unlimited seed space, where each node has sort of "dedicated bits" in the master seed.
+    #this is really easy to implement, and the number of bits in the master seed could be parametrizable.
+    #however, the gains would be basically null. with 64 bit seeds, we already have a huge seed space.
+    #increasing to 256 bit generation would slow everything down as data structures would not be able to fit in registers anymore.
+    #so, I intentionally kept it like this, for performance.
+    @staticmethod
+    def _mix_seeds(*seeds: int) -> int:
+        """
+        Mixes any number of 64-bit integers into one 64-bit seed.
+        It uses a combination of XOR and multiplication with large primes to ensure good bit diffusion and low collision probability.
+        Essentially, breaks possible slopy correlations between seeds by transforming close ones like
+        101 and 102 into very different seeds (at least 50% of the bits should flip on average).
+        See SplitMix64 and MurmurHash3 for details.
+        Note: this is not intended to preserve information. When they mix, information is lost (several 64 bits mix into one 64 bits).
+        Essentially, this just "reshuffles" the bits (deterministically), which is perfectly fine for rng seeding purposes.
+        """
+        k1 = 0xbf58476d1ce4e5b9 #constants from SplitMix64 and MurmurHash3
+        k2 = 0x94d049bb133111eb
+        
 
-class IterableNode(Node):
-    ...
+        x = 0x9e3779b97f4a7c15 #init 
+        
+        for s in seeds:
+            x ^= s
+            x = (x * k1) & 0xFFFFFFFFFFFFFFFF
+            
+        #this ensures the final bit distribution is uniform (50% flip probability)
+        x = (x ^ (x >> 30)) * k1
+        x = (x ^ (x >> 27)) * k2
+        x = x ^ (x >> 31)
+        
+        return x & 0xFFFFFFFFFFFFFFFF
+
+
+# class IterableNode(Node):
+#     ...
     
 
 def smart_copy(obj: Any) -> Any:
