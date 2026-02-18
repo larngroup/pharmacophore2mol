@@ -29,7 +29,7 @@ from typing import Any
 import warnings
 import itertools
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 import torch
 #optional imports for smart_copy
 try:
@@ -49,6 +49,11 @@ _CUSTOM_COPIERS = {}
 #cache of unsupported types to avoid spamming warnings
 _UNSUPPORTED_TYPE_CACHE = set()
 
+#max possible size of a 64 bit integer
+_MAX_64_BIT = (1 << 64) - 1
+
+_UNSET = object()
+
 
 class NodeMeta(type(Dataset)):
     _root_class = None
@@ -63,12 +68,12 @@ class NodeMeta(type(Dataset)):
         instance = super().__call__(*args, **kwargs)
         base_node = NodeMeta._root_class
         
-        # init check
-        if not getattr(instance, '_is_initialized', False):
-            raise RuntimeError(
-                f"Node '{cls.__name__}' was not properly initialized.\n"
-                f"Perhaps you overrode `__init__` but forgot to call `super().__init__(...)`."
-            )
+        # # init check 
+        # if not getattr(instance, '_is_initialized', False):
+        #     raise RuntimeError(
+        #         f"Node '{cls.__name__}' was not properly initialized.\n"
+        #         f"Perhaps you overrode `__init__` but forgot to call `super().__init__(...)`."
+        #     )
 
         if cls is not base_node:
             # forward present
@@ -81,7 +86,7 @@ class NodeMeta(type(Dataset)):
             # len for source nodes
             if not instance.parents:
                 if cls.__len__ == base_node.__len__:
-                    raise NotImplementedError(
+                    raise NotImplementedError(#TODO: do they really need tho? maybe check the pass_index or the enforce_len flags
                         f"Source Node '{cls.__name__}' is missing the `__len__` method.\n"
                         f"Source nodes must implement `__len__(self)` manually."
                     )
@@ -92,9 +97,15 @@ class Node(Dataset, metaclass=NodeMeta):
     """
     Base class for all DAG nodes.
     Implements lazy, pull-based data processing with support for branching and merging.
-    It's execution flow is fetch-copy-forward, ensuring memory safety across C++ pointers.
+    It's execution flow is fetch-copy-forward, ensuring memory safety even across C++ pointers.
     Copy step can be ignored for performance if upstream nodes guarantee immutability.
-
+    To implement a new Node, subclass this class and implement:
+    1. `setup(self, ...)`: (Optional) To handle initialization parameters. DO NOT override `__init__`.
+    2. `forward(self, parent1, parent2, ...)`: (Required) To define the processing logic. DO NOT override `__getitem__`. 
+       It automatically receives data from parents. Additionally, if the signature contains `index` or `seed`, these are 
+       automatically injected:
+       - `index` (int): The global sample index being requested.
+       - `seed` (int): A deterministic random seed unique to this node and sample.
 
     Parameters
     ----------
@@ -116,20 +127,49 @@ class Node(Dataset, metaclass=NodeMeta):
         forward(). This improves performance but risks in-place modification of upstream data. Only set
         True when you can guarantee that upstream nodes produce immutable outputs or you accept shared
         mutable state.
+    is_finite : bool, optional
+        Allows overriding the automatic finiteness detection.
+        If True, the node is treated as having a known, fixed length.
+        If False, the node is treated as an infinite stream (e.g., a random generator).
+        If left as _UNSET (default), it is automatically inferred from whether the `forward` method 
+        needs the `index` argument and the finiteness of the parent nodes.
+    **setup_kwargs : Any
+        Any additional keyword arguments are passed directly to the user-defined `setup()` method.
+        This allows you to define custom configuration parameters for your Node in its `setup` signature
+        and pass them during initialization.
     """
     
-    def __init__(self, parents=None, seed=None, bypass_copy=False):
+    def __init__(self, parents=None, *, seed=None, bypass_copy=False, is_finite=_UNSET, **setup_kwargs):
+        if parents is not None:
+            # Strict validation to enforce keyword usage for source nodes
+            is_valid_parent = False
+            if isinstance(parents, (Node, Dataset)):
+                is_valid_parent = True
+            elif isinstance(parents, list) and all(isinstance(p, (Node, Dataset)) for p in parents):
+                is_valid_parent = True
+            elif isinstance(parents, dict) and all(isinstance(p, (Node, Dataset)) for p in parents.values()):
+                is_valid_parent = True
+            
+            if not is_valid_parent:
+                raise TypeError(
+                    f"Invalid argument passed to 'parents' in Node '{self.__class__.__name__}'.\n"
+                    f"Got type: {type(parents).__name__} ({parents!r})\n"
+                    f"If you intended to pass this as a configuration parameter for 'setup()', "
+                    f"you MUST pass it as a keyword argument (e.g., param={parents!r}).\n"
+                    f"Positional arguments are strictly reserved for parent nodes.\n"
+                    f"Correct Usage:\n"
+                    f"  Source Node:  {self.__class__.__name__}(filepath='data.csv')\n"
+                    f"  Process Node: {self.__class__.__name__}(parent_node, factor=10)\n"
+                )
+
         self.parents = parents if parents is not None else []
         self._training = True  #default mode is training
         self._continue_on_error = False #default error handling mode is to raise exceptions
         self.copy_inputs = not bypass_copy
-        self._len = -1 #sentinel value
+        # self._len = 1 #minimum possible length, just for initialization
 
-        #for non-source nodes, len should be calculated once during init, as we already have everything and can alert to errors early
-        if self.parents:
-            self._len = self._compute_length()
-
-        # self._salt = random.randint(0, (1 << 64) - 1)  #unique salt for this node instance #TODO: should be copied if sync is added 
+        self.is_finite = is_finite
+        
         if isinstance(seed, Node): #sync with another node (the first in the sync chain)
             self._salt = seed.salt
         elif isinstance(seed, int): #sync with others via fixed int
@@ -145,9 +185,44 @@ class Node(Dataset, metaclass=NodeMeta):
         self._pass_seed = has_kwargs or 'seed' in params
         self._pass_index = has_kwargs or 'index' in params
 
+        if self.is_finite is _UNSET: #auto mode
+            if self._pass_index:
+                self.is_finite = True #if the node needs the index, it should be finite, unless forced otherwise
+            else:
+                if not self.parents:
+                    #source node with no index. default to infinite unless user implemented __len__
+                    #if they did, it's a strong signal they want it to be finite (like a fixed size random source, capped generator, etc)
+                    base_len = Node.__len__
+                    user_len = self.__class__.__len__
+                    self.is_finite = (user_len is not base_len)
+                else:
+                    # if any parent is finite, this node is finite too, unless forced otherwise
+                    parents_iterable = []
+                    if isinstance(self.parents, list):
+                        parents_iterable = self.parents
+                    elif isinstance(self.parents, dict):
+                        parents_iterable = self.parents.values()
+                    elif isinstance(self.parents, (Node, Dataset)):
+                        parents_iterable = [self.parents]
+                    
+                    self.is_finite = any(getattr(p, 'is_finite', True) for p in parents_iterable)
+
+        #for non-source nodes, len should be calculated once during init, as we already have everything and can alert to errors early
+        # if self.parents:
+        #     self._len = self._compute_length()
+
         self._validate_forward_signature(sig)
 
+
+        self.setup(**setup_kwargs) #call user setup for custom params, if any
         self._is_initialized = True
+
+    def __init_subclass__(cls, **kwargs): #users should not override __init__, but setup instead
+        super().__init_subclass__(**kwargs)
+        if "__init__" in cls.__dict__:
+            raise TypeError(f"{cls.__name__} cannot override __init__; use setup() instead")
+        if "__getitem__" in cls.__dict__:
+            raise TypeError(f"{cls.__name__} cannot override __getitem__; use forward() to define processing logic instead")
 
     def _validate_forward_signature(self, sig):
         """
@@ -213,7 +288,7 @@ class Node(Dataset, metaclass=NodeMeta):
                 p._set_continue_on_error_recursive(value, visited)
 
     def __len__(self):
-        return self._len
+        return self._compute_length()
     
     def __getitem__(self, index):
         """
@@ -228,6 +303,11 @@ class Node(Dataset, metaclass=NodeMeta):
         # init
         context_cache = {}
         context_cache['index'] = index
+        if self._training:
+            call_seed = int(torch.empty((), dtype=torch.int64).random_().item())
+        else:
+            call_seed = 0 #on eval, we want the same seed every time for the same index
+        context_cache['call_seed'] = call_seed
 
         try:
             ret = self._get(context_cache)
@@ -290,6 +370,21 @@ class Node(Dataset, metaclass=NodeMeta):
             "The salt defines the node's identity. Changing it breaks synchronization with downstream nodes.\n"
             "If you wish to change the seed, please use the 'seed' parameter of __init__ instead."
         )
+    
+    def setup(self, **kwargs):
+        """
+        User-defined setup method for custom parameters.
+        This is where you should put any initialization logic that depends on user-defined parameters.
+        The parameters are passed as keyword arguments from the constructor, and can be defined freely by the user.
+        Example:
+        ```python
+        class MyNode(Node):
+            def setup(self, myparam1, myparam2=10):
+                self.myparam1 = myparam1
+                self.myparam2 = myparam2
+        ```
+        """
+        pass
     
     def forward(self, *args, **kwargs):
         """
@@ -372,7 +467,7 @@ class Node(Dataset, metaclass=NodeMeta):
         """
         index = context['index']
         #check cache first
-        cache_key = (id(self), index)
+        cache_key = (id(parent), index)
         if cache_key in context:
             return context[cache_key]
 
@@ -390,8 +485,9 @@ class Node(Dataset, metaclass=NodeMeta):
     def _get(self, context):
         
         index = context['index']
+        call_seed = context['call_seed']
 
-        node_seed = self._mix_seeds(index, self._salt) #safe mixing, breaks correlations caused by bad code in the forward method
+        node_seed = self._mix_seeds(index, call_seed, self._salt) #safe mixing, breaks correlations caused by bad code in the forward method
                                    
         kwargs = {}
         #handle seed
@@ -463,20 +559,25 @@ class Node(Dataset, metaclass=NodeMeta):
     def _compute_length(self): #TODO: check in full
         """
         Calculates the length of this node based on its parents.
-        This runs ONCE during __init__.
         """
+
+        #no parents, this is a source node where len was not overriden, default len is 1 but it should be overridden by the user
+        if not self.parents:
+            return 1
             
         # one parent
-        if isinstance(self.parents, torch.utils.data.Dataset):
+        if isinstance(self.parents, torch.utils.data.Dataset): #and this includes Nodes too...
             return len(self.parents)
             
         # several
         elif isinstance(self.parents, (list, dict)):
             parents_list = self.parents.values() if isinstance(self.parents, dict) else self.parents
-            lengths = [len(p) for p in parents_list]
-            if len(set(lengths)) != 1:
-                raise ValueError(f"Parent length mismatch! All parents must have the same length. Got: {lengths}")
-            return lengths[0]
+            priority_lengths = [len(p) for p in parents_list if getattr(p, 'is_finite', True)]
+            if len(set(priority_lengths)) > 1:
+                # raise ValueError(f"Parent length mismatch! All parents must have the same length. Got: {lengths}")
+                warnings.warn(f"Parent length mismatch! All parents should ideally have the same length to avoid unexpected behavior. Got: {priority_lengths}. Assuming max length: {max(priority_lengths)}", category=UserWarning, stacklevel=2)
+            # return lengths[0]
+            return max(priority_lengths) if priority_lengths else 1  # if lengths differ, we take the max, as long as there's at least one parent that matters for length (meaning, it needs the index somewhere upstream of it). if there's no parent in such condition, then simply default to 1, as this node does not really depend on the index and can just repeat the same sample if lengths differ or are missing.
 
         raise TypeError(
             f"Invalid `parents` type in Node '{self.__class__.__name__}'.\n"
@@ -542,6 +643,37 @@ class _FailedSample:
 
     def __repr__(self):
         return f"_FailedSample(index={self.index}, error={repr(self.error)})"
+
+
+class SizableSequentialSampler(Sampler):
+    """
+    A variation of SequentialSampler that allows forcing a specific number of samples.
+    
+    Standard `SequentialSampler` always iterates exactly `len(dataset)` times.
+    This sampler iterates `max_samples` times (or infinitely if None), yielding indices 
+    incrementally starting from `start_index`.
+
+    This is particularly useful for:
+    1. Infinite/Streaming datasets where `len(dataset)` is not meaningful.
+    2. debugging (running a small subset of a large dataset sequentially).
+    3. defining an arbitrary 'epoch' size for continuous training.
+    """
+    def __init__(self, data_source=None, start_index=0, max_samples=None):
+        self.data_source = data_source
+        self.start_index = start_index
+        self.max_samples = max_samples if max_samples is not None else _MAX_64_BIT
+        
+    def __iter__(self):
+        i = self.start_index
+        count = 0
+        while count < self.max_samples:
+            yield i
+            i += 1
+            count += 1
+            
+    def __len__(self):
+        # returns the effective length (either the explicit limit or max 64 bit)
+        return self.max_samples
     
 
 def smart_copy(obj: Any) -> Any:
@@ -619,10 +751,10 @@ class ReplacerCollate:
     This is used in the DataLoader to handle _FailedSample instances returned by nodes when continue_on_error=True or when filtering causes None propagation.
     It detects the index of the failed sample and deterministically generates a new sample index to replace it, ensuring reproducibility.
     """
-    def __init__(self, dataset, max_retries=1000):
+    def __init__(self, dataset, max_retries=1000, same_index=False):
         self.dataset = dataset
         self.max_retries = max_retries
-        self.RETRY_SALT = 0xBC58476D1CE4E5B9  # A fixed salt to mix with the failed index for generating replacement indices
+        self.RETRY_SALT = 0xBC58476D1CE4E5B9
 
     def __call__(self, batch):
         repaired_batch = []
@@ -638,8 +770,10 @@ class ReplacerCollate:
         """
         Deterministically finds a replacement for a failed index, until max_retries is reached.
         """
+        limit = len(self.dataset)
         for attempt in range(self.max_retries):
-            new_index = Node._mix_seeds(failed_index, self.RETRY_SALT, attempt)# % len(self.dataset)
+            raw_seed = Node._mix_seeds(failed_index, self.RETRY_SALT, attempt)
+            new_index = raw_seed % limit
             try:
                 sample = self.dataset[new_index]
                 if not isinstance(sample, _FailedSample):
