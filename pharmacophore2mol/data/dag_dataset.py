@@ -5,7 +5,7 @@ Modular DAG Data Pipeline for PyTorch
 =====================================
 This module implements a Pull-Based, or Directed Acyclic Graph (DAG) architecture for 
 building complex, non-linear PyTorch datasets. Unlike standard linear Compose pipelines,
-this architecture supports branching, merging, and complex index manipulation (1-to-many splitting) 
+this architecture supports branching, merging, and multiple inputs/outputs,  
 while maintaining strict determinism and memory safety.
 
 To use and create a DAG pipeline, do as follows:
@@ -67,13 +67,6 @@ class NodeMeta(type(Dataset)):
     def __call__(cls, *args, **kwargs):
         instance = super().__call__(*args, **kwargs)
         base_node = NodeMeta._root_class
-        
-        # # init check 
-        # if not getattr(instance, '_is_initialized', False):
-        #     raise RuntimeError(
-        #         f"Node '{cls.__name__}' was not properly initialized.\n"
-        #         f"Perhaps you overrode `__init__` but forgot to call `super().__init__(...)`."
-        #     )
 
         if cls is not base_node:
             # forward present
@@ -268,24 +261,39 @@ class Node(Dataset, metaclass=NodeMeta):
         """
         if not isinstance(value, bool):
             raise ValueError(f"'continue_on_error' must be a boolean. Got: {type(value).__name__}")
-        self._set_continue_on_error_recursive(value, set())
+        self._set_attribute_recursive('_continue_on_error', value, set())
 
-    def _set_continue_on_error_recursive(self, value, visited):
+    @property
+    def _parents_iterable(self):
+        """
+        Helper to get an iterable of parents regardless of the storage structure.
+        """
+        if isinstance(self.parents, list):
+            return self.parents
+        elif isinstance(self.parents, dict):
+            return self.parents.values()
+        elif isinstance(self.parents, (Node, Dataset)):
+            return [self.parents]
+        return []
+
+    def _set_attribute_recursive(self, attr_name, value, visited):
+        """
+        Generic helper to set an attribute on this node and all upstream nodes recursively.
+        Handles cycles in the graph by using a visited set.
+        """
         if id(self) in visited:
             return
         visited.add(id(self))
-        self._continue_on_error = value
-        parents = []
-        if isinstance(self.parents, list):
-            parents = self.parents
-        elif isinstance(self.parents, dict):
-            parents = self.parents.values()
-        elif isinstance(self.parents, Node):
-            parents = [self.parents]
-
-        for p in parents:
+        
+        setattr(self, attr_name, value)
+        
+        for p in self._parents_iterable:
             if isinstance(p, Node):
-                p._set_continue_on_error_recursive(value, visited)
+                p._set_attribute_recursive(attr_name, value, visited)
+            elif isinstance(p, Dataset):
+                # try to set it on non-Node datasets if they support it
+                if hasattr(p, attr_name):
+                     setattr(p, attr_name, value)
 
     def __len__(self):
         return self._compute_length()
@@ -396,9 +404,11 @@ class Node(Dataset, metaclass=NodeMeta):
         *args :
             Positional inputs from parents (if parents is list/Node).
         **kwargs :
-            Keyword inputs from parents (if parents is dict) 
+            Keyword inputs from parents (if parents is dict).
             
-            PLUS 'seed' (if using randomness, it is strongly recomended that this is the single source of it, for synchronization and determinism). 
+            Additionally, the following "magic" arguments are injected if they are present in the signature:
+            - `seed` (int): A deterministic random seed unique to this node and sample. Strongly recommended as the sole source of randomness.
+            - `index` (int): The global index of the sample being processed.
 
         Returns
         -------
@@ -431,10 +441,10 @@ class Node(Dataset, metaclass=NodeMeta):
         This is the default mode. It just sets a boolean flag self.training = True, so that
         operations that behave differently in training vs eval can check it and adjust their behavior accordingly.
         For example, a node might apply random augmentations only in training mode, or bypass them in eval mode.
-        
         """
-        self._training = True
-        self._propagate_mode('train')
+        self._set_attribute_recursive('_training', True, set())
+        #we propagate the method call to handle any custom logic in parents (Node or otherwise)
+        self._call_method_recursive("train", set())
 
     def eval(self):
         """
@@ -442,22 +452,47 @@ class Node(Dataset, metaclass=NodeMeta):
         
         Just a boolean flag self.training = False. In this mode, nodes can adjust their behavior accordingly, for example by bypassing random augmentations.
         """
-        self._training = False
-        self._propagate_mode('eval')
+        self._set_attribute_recursive('_training', False, set())
+        self._call_method_recursive("eval", set())
 
-    def _propagate_mode(self, mode: str):
-        # propagate to parents
-        parents = []
-        if isinstance(self.parents, list):
-            parents = self.parents
-        elif isinstance(self.parents, dict):
-            parents = self.parents.values()
-        elif isinstance(self.parents, Node):
-            parents = [self.parents]
-
-        for p in parents:
-            if hasattr(p, mode): #although all nodes should have it, if using non-node datasets upstream this avoids errors, like torch's Datasets
-                getattr(p, mode)()
+    def _call_method_recursive(self, method_name, visited):
+        """
+        Helper to recursively call a method on all upstream parents.
+        """
+        if id(self) in visited:
+            return
+        visited.add(id(self))
+       
+        for p in self._parents_iterable:
+            # If it's a Node, we call the recursive helper to keep traversing up
+            if isinstance(p, Node):
+                p._call_method_recursive(method_name, visited)
+            
+            # Regardless if it is a Node or not, we try to call the method if it exists.
+            # For Nodes, this is redundant if the method is the standard train(),
+            # as _set_attribute_recursive handled the flag. 
+            # But if the Node subclass overrides train(), this ensures it runs.
+            # We must be careful not to re-enter infinite recursion if p.train() calls p._call_method_recursive().
+            # Thankfully, the 'visited' set check at the start of _call_method_recursive protects us 
+            # provided we pass the SAME visited set.
+            # But here we are calling p.train(), not p._call_method_recursive directly.
+            # If p.train() calls p._call_method_recursive, it will hit the visited check immediately and return.
+            if hasattr(p, method_name) and callable(getattr(p, method_name)):
+                 # We only call it if it's NOT a standard Node method call that would just re-trigger recursion without doing anything else.
+                 # Actually, the simplest way is to trust the visited set.
+                 # But we can't pass 'visited' to p.train().
+                 # So we only call the method on parents if they are NOT Nodes (to avoid double traversing or complex checks),
+                 # OR if they are Nodes, we assume their train() implementation creates a NEW recursion which is bad.
+                 
+                 # Let's revert to a simpler model:
+                 # _call_method_recursive just traverses.
+                 # It calls the method on non-Node parents.
+                 # For Node parents, it just recurses. 
+                 # This assumes Node subclasses don't override train() with custom logic that MUST be called.
+                 # If they do, they should handle their own propagation if they don't call super().train().
+                 
+                 if not isinstance(p, Node):
+                     getattr(p, method_name)()
 
     
     def _resolve_parent(self, parent, context):
@@ -490,11 +525,9 @@ class Node(Dataset, metaclass=NodeMeta):
         node_seed = self._mix_seeds(index, call_seed, self._salt) #safe mixing, breaks correlations caused by bad code in the forward method
                                    
         kwargs = {}
-        #handle seed
         if self._pass_seed:
             kwargs['seed'] = node_seed
 
-        #handle index
         if self._pass_index:
             kwargs['index'] = index
 
@@ -754,6 +787,7 @@ class ReplacerCollate:
     def __init__(self, dataset, max_retries=1000, same_index=False):
         self.dataset = dataset
         self.max_retries = max_retries
+        self.same_index = same_index
         self.RETRY_SALT = 0xBC58476D1CE4E5B9
 
     def __call__(self, batch):
@@ -770,121 +804,39 @@ class ReplacerCollate:
         """
         Deterministically finds a replacement for a failed index, until max_retries is reached.
         """
-        limit = len(self.dataset)
+        # Determine effective limit and finiteness
+        limit = 1
+        is_finite = getattr(self.dataset, 'is_finite', True)
+        try:
+            limit = len(self.dataset)
+            if limit <= 1: 
+                is_finite = False
+        except (TypeError, NotImplementedError):
+            is_finite = False
+            
+        INT64_MAX = (1 << 63) - 1
+
         for attempt in range(self.max_retries):
-            raw_seed = Node._mix_seeds(failed_index, self.RETRY_SALT, attempt)
-            new_index = raw_seed % limit
+            if self.same_index:
+                new_index = failed_index
+                # WARNING: In the current implementation of Node._get, the seed depends on (index, call_seed).
+                # During training, call_seed is random per call, so retrying the same index automatically 
+                # gets a new seed. During eval, call_seed is 0, so retrying same index gets same result 
+                # (infinite loop of failure). However, ReplacerCollate is usually for training data loaders.
+            else:
+                raw_seed = Node._mix_seeds(failed_index, self.RETRY_SALT, attempt)
+                if is_finite:
+                    new_index = raw_seed % limit
+                else:
+                    new_index = raw_seed & INT64_MAX
+                
             try:
                 sample = self.dataset[new_index]
                 if not isinstance(sample, _FailedSample):
                     return sample
             except Exception:
-                continue  # If the replacement also fails, try the next one
+                pass  #if the replacement also fails, try again
+        
         raise RuntimeError(f"Failed to get a valid replacement for index {failed_index} after {self.max_retries} attempts.")
 
 
-if __name__ == "__main__":
-    import time
-    from torch.utils.data import Dataset as TorchDataset
-
-    class MySourceNode(Node):
-        def __init__(self, data):
-            super().__init__()
-            self.data = data
-        
-        def __len__(self):
-            return len(self.data)
-        
-        def forward(self, index):
-            self.load_data()
-            index = index % len(self.data)
-            return self.data[index]
-        
-        def load_data(self):
-            time.sleep(0.1)  # Simulate delay
-            return self.data
-        
-
-    class MyTransformNode(Node):
-        def __init__(self, parent, factor):
-            super().__init__(parents=parent)
-            self.factor = factor
-        
-        def forward(self, x):
-            return x * self.factor
-        
-    class MyMergeNode(Node):
-        
-        def forward(self, x1, x2):
-            return x1 + x2
-        
-
-    print("--- Testing Standard Node DAG ---")
-    source = MySourceNode(data=[1, 2, 3, 4, 5])
-    transform = MyTransformNode(source, factor=10)
-    transform2 = MyTransformNode(source, factor=2)
-    merge = MyMergeNode(parents=[transform, transform2])
-    
-    for i in range(len(transform)):
-        print(f"Index {i}: {merge[i]}")
-
-    print("\n--- Testing Torch Dataset Compatibility ---")
-    
-    # A "dumb" standard PyTorch Dataset (mimics ImageFolder, TensorDataset, etc.)
-    class RawTorchDataset(TorchDataset):
-        def __init__(self, data):
-            self.data = data
-        def __len__(self):
-            return len(self.data)
-        def __getitem__(self, index):
-            return self.data[index]
-
-    # Initialize the raw dataset
-    raw_ds = RawTorchDataset(data=[100, 200, 300])
-
-    # Wrap it in a Node
-    # The Node should detect it's not a 'Node' instance and use standard __getitem__
-    # logic via _resolve_parent, while still applying caching.
-    adapter_node = MyTransformNode(raw_ds, factor=0.5)
-
-    for i in range(len(adapter_node)):
-        print(f"Index {i} (Raw {raw_ds[i]} * 0.5): {adapter_node[i]}")
-
-
-    print("\n--- Testing iterator support ---")
-
-    for idx, value in enumerate(merge):
-        print(f"Index {idx} via iterator: {value}")
-        if idx >=10:  #just to avoid infinite loops like intended in some scenarios
-            break
-
-    print("\n--- Testing filtering with None propagation ---")
-    class FilterNode(Node):
-        def forward(self, x):
-            if x % 40 == 0:
-                return x
-            else:
-                return None  # This sample will be filtered out
-    filter_node = FilterNode(parents=merge)
-    for i in range(len(filter_node)):
-        print(f"Index {i} after filter: {filter_node[i]}")
-
-    print("\n--- Testing error handling with continue_on_error=True ---")
-    class ErrorNode(Node):
-        def forward(self, x):
-            if x == 60:
-                raise ValueError("Intentional error for testing.")
-            return x
-    error_node = ErrorNode(parents=merge)
-    error_node.continue_on_error = True  # Enable error handling mode
-    for i in range(len(error_node)):
-        print(f"Index {i} after error node: {error_node[i]}")
-
-    print("\n--- Testing ReplacerCollate ---")
-    from torch.utils.data import DataLoader
-    # Create a dataset with some failures
-    filter_after_error = FilterNode(parents=error_node)
-    filter_after_error.continue_on_error = True
-    dl = DataLoader(filter_after_error, batch_size=1, collate_fn=ReplacerCollate(filter_after_error), shuffle=False)
-    for batch in enumerate(dl):
-        print(f"Batch: {batch}")

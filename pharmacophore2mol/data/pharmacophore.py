@@ -49,7 +49,7 @@ class Pharmacophore:
 
         #directions (copied from rdkit.Chem.Features)
         for feat in features:
-            if not ignore_directions and feat.GetFamily() in ['Donor', 'Acceptor', 'Aromatic']:
+            if not ignore_directions and feat.GetFamily() in PHARMACOPHORE_CHANNELS:
                 pos = feat.GetPos()
                 family = feat.GetFamily()
                 dirs = self._get_feature_direction_vector(feat, pos, family)

@@ -446,5 +446,27 @@ def convert_to_sdf(input_path, output_sdf=None):
     return output_sdf
 
 
+def get_atom_coords(mol: Chem.Mol) -> np.ndarray:
+    """
+    Get the coordinates of the first conformer of a molecule.
+    Also checks if the molecule has conformers.
+    """
+    if mol.GetNumConformers() == 0:
+        raise ValueError("RDKit Mol has no conformers.")
+    conf = mol.GetConformer(0)
+    return conf.GetPositions()
+
+
+def set_atom_coords(mol: Chem.Mol, coords: np.ndarray) -> Chem.Mol:
+    """
+    Set the coordinates of the first conformer of a molecule.
+    """
+    if mol.GetNumConformers() == 0:
+        raise ValueError("RDKit Mol has no conformers.")
+    conf = mol.GetConformer(0)
+    conf.SetPositions(coords)
+    return mol
+
+
 
     
