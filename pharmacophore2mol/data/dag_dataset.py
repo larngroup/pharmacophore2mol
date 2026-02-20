@@ -107,7 +107,7 @@ class Node(Dataset, metaclass=NodeMeta):
         Upstream node or nodes supplying data for this node. Accepts a single Node, a list of Nodes
         (ordered inputs), or a dict mapping names to Nodes (named inputs). Use None for root/source
         nodes that produce data without upstream dependencies.
-    seed : None | int | Node, optional
+    salt : None | int | Node, optional
         Controls randomness and reproducibility:
           - None (default): Independent per-node randomness derived from the sample index plus a
             unique node salt; results vary across runs.
@@ -132,7 +132,38 @@ class Node(Dataset, metaclass=NodeMeta):
         and pass them during initialization.
     """
     
-    def __init__(self, parents=None, *, seed=None, bypass_copy=False, is_finite=_UNSET, **setup_kwargs):
+    def __init__(self, parents=None, *, salt=None, bypass_copy=False, is_finite=_UNSET, **setup_kwargs):
+        # 1. Store static configs
+        self._training = True
+        self._continue_on_error = False
+        self.copy_inputs = not bypass_copy
+        
+        if isinstance(salt, Node): #salt is the unique identity of the node, not actual seed passed, although it depends on salt 
+            self._salt = salt.salt
+        elif isinstance(salt, int):
+            self._salt = salt
+        else:
+            self._salt = random.randint(0, (1 << 64) - 1)
+
+        #signature checks and magic injection
+        sig = inspect.signature(self.forward)
+        params = sig.parameters
+        has_kwargs = any(p.kind == p.VAR_KEYWORD for p in params.values())
+        
+        self._pass_seed = has_kwargs or 'seed' in params
+        self._pass_index = has_kwargs or 'index' in params
+        self._forward_sig = sig # cache signature for validation
+
+        self._configure_parents(parents, is_finite_override=is_finite)
+
+        self.setup(**setup_kwargs) #user init hook
+        self._is_initialized = True
+
+    def _configure_parents(self, parents, is_finite_override=_UNSET):
+        """
+        Validates parents, calculates length/finiteness.
+        Used by __init__ and clone().
+        """
         if parents is not None:
             # Strict validation to enforce keyword usage for source nodes
             is_valid_parent = False
@@ -156,27 +187,9 @@ class Node(Dataset, metaclass=NodeMeta):
                 )
 
         self.parents = parents if parents is not None else []
-        self._training = True  #default mode is training
-        self._continue_on_error = False #default error handling mode is to raise exceptions
-        self.copy_inputs = not bypass_copy
-        # self._len = 1 #minimum possible length, just for initialization
 
-        self.is_finite = is_finite
-        
-        if isinstance(seed, Node): #sync with another node (the first in the sync chain)
-            self._salt = seed.salt
-        elif isinstance(seed, int): #sync with others via fixed int
-            self._salt = seed
-        else:
-            self._salt = random.randint(0, (1 << 64) - 1)  #unique salt for this node instance
-
-        #signature checks and magic injection
-        sig = inspect.signature(self.forward)
-        params = sig.parameters
-        has_kwargs = any(p.kind == p.VAR_KEYWORD for p in params.values())
-        
-        self._pass_seed = has_kwargs or 'seed' in params
-        self._pass_index = has_kwargs or 'index' in params
+        if is_finite_override is not _UNSET:
+            self.is_finite = is_finite_override
 
         if self.is_finite is _UNSET: #auto mode
             if self._pass_index:
@@ -200,15 +213,91 @@ class Node(Dataset, metaclass=NodeMeta):
                     
                     self.is_finite = any(getattr(p, 'is_finite', True) for p in parents_iterable)
 
-        #for non-source nodes, len should be calculated once during init, as we already have everything and can alert to errors early
-        # if self.parents:
-        #     self._len = self._compute_length()
+        self._validate_forward_signature(self._forward_sig)
 
-        self._validate_forward_signature(sig)
+    def __deepcopy__(self, memo):
+        """
+        Custom deepcopy to prevent cloning the entire upstream graph (parents).
+        We only want to deepcopy the Node's internal configuration/state.
+        Parents are references to other nodes, and we usually want to keep pointing 
+        to the SAME parents (or rebind them later), not clone a whole new pipeline of parents.
+        """
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        
+        saved_parents = self.parents
+        self.parents = None 
+        
+        try:
+            
+            for k, v in self.__dict__.items():
+                if k == 'parents': 
+                    continue # skip parents, we set it to None manually on the new instance
+                setattr(result, k, copy.deepcopy(v, memo))
+                
+        finally:
+            self.parents = saved_parents
 
+        result.parents = saved_parents #yeah, although we likely want to change this *after* the deepcopy, the deepcopy itself should return a perfect copy of self 
+        
+        return result
 
-        self.setup(**setup_kwargs) #call user setup for custom params, if any
-        self._is_initialized = True
+    def clone(self, new_parents=None, *, salt=_UNSET, bypass_copy=_UNSET, is_finite=_UNSET):
+        """
+        Creates a synchronized DEEP copy of this node, optionally reconfigured.
+        
+        This uses `copy.deepcopy`, so the new node is completely independent of the original
+        regarding mutable state (lists, buffers, etc.), preventing side effects.
+        
+        By default, the clone shares the same random 'salt' as the original.
+        This means if the node is a random augmentation (like RandomRotate),
+        the clone will perform the EXACT SAME transformation as the original 
+        for the same sample index. This can be changed too, see parameters below.
+
+        Parameters
+        ----------
+        new_parents : Node | list[Node] | dict | None
+            If provided, rebinds the node to new upstream data sources.
+            If None, retains the original parents (by reference, not cloned).
+        salt : int | Node | None | _UNSET
+            - _UNSET (Default): The clone shares the EXACT SAME salt as the original (Synchronized with the original node).
+            - None: The clone gets a NEW RANDOM salt (Independent).
+            - int/Node: The clone uses this specific salt or syncs to that specific node.
+        bypass_copy : bool
+            If provided, overrides the copy behavior for the clone.
+        is_finite : bool
+            If provided, forces the finiteness mode.
+        """
+        
+        new_node = copy.deepcopy(self)# __deepcopy__ already handles not deepcopying the parents too (and the graph)
+        
+        #reconfigs only, deepcopy already handled copying
+        if salt is not _UNSET: #else the original salt is already there, copied
+            if salt is None:
+                 new_node._salt = random.randint(0, (1 << 64) - 1)
+            elif isinstance(salt, Node): 
+                new_node._salt = salt.salt
+            elif isinstance(salt, int):
+                new_node._salt = salt
+            else:
+                new_node._salt = salt
+
+        if bypass_copy is not _UNSET:
+            new_node.copy_inputs = not bypass_copy
+            
+        # if new_parents is provided, we rebind, and this should be the main use case. Otherwise, we keep the parents set by deepcopy (which match self.parents).
+        parents_to_use = new_parents if new_parents is not None else new_node.parents
+        
+        # if parents changed and finiteness wasn't explicit, allow re-inference
+        # but if finiteness WAS explicit (is_finite arg), we pass it to configure
+        finite_arg = is_finite
+        if new_parents is not None and is_finite is _UNSET:
+            new_node.is_finite = _UNSET
+            
+        new_node._configure_parents(parents_to_use, is_finite_override=finite_arg)
+            
+        return new_node
 
     def __init_subclass__(cls, **kwargs): #users should not override __init__, but setup instead
         super().__init_subclass__(**kwargs)
@@ -443,8 +532,6 @@ class Node(Dataset, metaclass=NodeMeta):
         For example, a node might apply random augmentations only in training mode, or bypass them in eval mode.
         """
         self._set_attribute_recursive('_training', True, set())
-        #we propagate the method call to handle any custom logic in parents (Node or otherwise)
-        self._call_method_recursive("train", set())
 
     def eval(self):
         """
@@ -453,46 +540,6 @@ class Node(Dataset, metaclass=NodeMeta):
         Just a boolean flag self.training = False. In this mode, nodes can adjust their behavior accordingly, for example by bypassing random augmentations.
         """
         self._set_attribute_recursive('_training', False, set())
-        self._call_method_recursive("eval", set())
-
-    def _call_method_recursive(self, method_name, visited):
-        """
-        Helper to recursively call a method on all upstream parents.
-        """
-        if id(self) in visited:
-            return
-        visited.add(id(self))
-       
-        for p in self._parents_iterable:
-            # If it's a Node, we call the recursive helper to keep traversing up
-            if isinstance(p, Node):
-                p._call_method_recursive(method_name, visited)
-            
-            # Regardless if it is a Node or not, we try to call the method if it exists.
-            # For Nodes, this is redundant if the method is the standard train(),
-            # as _set_attribute_recursive handled the flag. 
-            # But if the Node subclass overrides train(), this ensures it runs.
-            # We must be careful not to re-enter infinite recursion if p.train() calls p._call_method_recursive().
-            # Thankfully, the 'visited' set check at the start of _call_method_recursive protects us 
-            # provided we pass the SAME visited set.
-            # But here we are calling p.train(), not p._call_method_recursive directly.
-            # If p.train() calls p._call_method_recursive, it will hit the visited check immediately and return.
-            if hasattr(p, method_name) and callable(getattr(p, method_name)):
-                 # We only call it if it's NOT a standard Node method call that would just re-trigger recursion without doing anything else.
-                 # Actually, the simplest way is to trust the visited set.
-                 # But we can't pass 'visited' to p.train().
-                 # So we only call the method on parents if they are NOT Nodes (to avoid double traversing or complex checks),
-                 # OR if they are Nodes, we assume their train() implementation creates a NEW recursion which is bad.
-                 
-                 # Let's revert to a simpler model:
-                 # _call_method_recursive just traverses.
-                 # It calls the method on non-Node parents.
-                 # For Node parents, it just recurses. 
-                 # This assumes Node subclasses don't override train() with custom logic that MUST be called.
-                 # If they do, they should handle their own propagation if they don't call super().train().
-                 
-                 if not isinstance(p, Node):
-                     getattr(p, method_name)()
 
     
     def _resolve_parent(self, parent, context):
@@ -516,9 +563,8 @@ class Node(Dataset, metaclass=NodeMeta):
         context[cache_key] = result  #write to cache
         return result
 
-        
+
     def _get(self, context):
-        
         index = context['index']
         call_seed = context['call_seed']
 
