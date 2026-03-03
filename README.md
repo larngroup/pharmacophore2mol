@@ -1,24 +1,16 @@
-# Project Name
+# pharmacophore2mol
 
-A brief description of what this project does and who it's for.
-
-## Table of Contents
-
-- [Installation](#installation)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [License](#license)
-- [Contact](#contact)
+`pharmacophore2mol` is a tool for generating molecules from pharmacophore models. Given a pharmacophore — a representation of the essential molecular features required for biological activity — the project aims to produce valid molecules that match those constraints.
 
 ## Installation
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/yourproject.git
+    git clone https://github.com/larngroup/pharmacophore2mol.git
     ```
 2. Navigate to the project directory:
     ```sh
-    cd yourproject
+    cd pharmacophore2mol
     ```
 3. Install the required dependencies:
     ```sh
@@ -27,18 +19,14 @@ A brief description of what this project does and who it's for.
 
 ## Usage
 
-Provide examples on how to use the project. For example:
-
 ```sh
-python main.py
+p2m --help
 ```
-
-## Citing
 
 ## License
 
 ## Contact
 
-Your Name - [your-email@example.com](mailto:your-email@example.com)
+Raul Sofia - [rauljcsofia@gmail.com](mailto:rauljcsofia@gmail.com)
 
-Project Link: [https://github.com/yourusername/yourproject](https://github.com/yourusername/yourproject)
+Project Link: [https://github.com/larngroup/pharmacophore2mol](https://github.com/larngroup/pharmacophore2mol)
