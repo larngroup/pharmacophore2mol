@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from pharmacophore2mol.data.dag_dataset import Node
 
@@ -47,10 +49,13 @@ class SDFLoader(Node):
     def setup(self, sdf_filepath):
         self.sdf_filepath = sdf_filepath
         self.mol_supplier = None
+        self._pid = None #for linux to work with fork, we need to force reopen of the supplier in each worker. on windows is automatic due to spawn
 
     def _ensure_supplier(self):
-        if self.mol_supplier is None:
+        current_pid = os.getpid()
+        if self.mol_supplier is None or self._pid != current_pid:#no supplier or new process due to fork
             self.mol_supplier = CustomSDMolSupplier(self.sdf_filepath)
+            self._pid = current_pid
 
     def __getstate__(self):
         state = self.__dict__.copy()
