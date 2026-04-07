@@ -27,7 +27,8 @@ dependencies = [
     "huggingface-hub",
     "coolname",
     "tabulate",
-    "hf_xet"
+    "hf_xet",
+    "openbabel",
 ]
 
 [project.scripts]
