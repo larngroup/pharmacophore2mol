@@ -157,6 +157,7 @@ def main(config):
             pin_memory=True,
             prefetch_factor=4,
             persistent_workers=True,
+            multiprocessing_context="spawn",
         )
         val_loader = DataLoader(
             val_dataset,
@@ -167,6 +168,7 @@ def main(config):
             pin_memory=True,
             prefetch_factor=4,
             persistent_workers=True,
+            multiprocessing_context="spawn",
         )
 
         model = DenseBondPredictor(
