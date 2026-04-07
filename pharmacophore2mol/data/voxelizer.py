@@ -37,116 +37,75 @@ class Voxelizer:
             , where f is a gaussian function centered at 0 and standard deviation of 1, and choose
             the maximum value for all points p.
         """
-        self.channels = {c: i for i, c in enumerate(channels)}
+        self._channels = {c: i for i, c in enumerate(channels)}
         self.mode = mode
         self.resolution = resolution
         self.kwargs = kwargs
 
     def __repr__(self):
-        return f"Voxelizer(channels={self.channels}, resolution={self.resolution}, mode={self.mode})"
+        return f"Voxelizer(channels={self._channels}, resolution={self.resolution}, mode={self.mode})"
     
-    def get_channels(self):
-        return self.channels
+    @property
+    def channels(self):
+        return self._channels
     
-    def voxelize(self, points: dict, min_grid_size: tuple | None = None, min_grid_shape: tuple | None = None, allow_negative_coords=False, force_shape: np.ndarray | None = None) -> np.ndarray: #python 3.10+ stuff, not that portable but pytorch already kinda limits backport to earlier python
+    @channels.setter
+    def channels(self, channels: list):
+        self._channels = {c: i for i, c in enumerate(channels)}
+
+    
+    def set_channels(self, channels: list):
+        self.channels = channels
+    
+    def voxelize(self, points: dict, center: tuple | np.ndarray, side_length: float, force_shape: tuple | None = None) -> np.ndarray: #python 3.10+ syntax, but the backport is already limited by torch
         """
-        Voxelize a point cloud.
+        Voxelize a point cloud within a specific cubic region of interest.
 
         Parameters
         ----------
         points: dict
             A dictionary with the channel name as key and the points' coordinates as value.
             The points should be a 2d array, with shape (#points, 3).
-            Example::
+            Example: {'C': np.array([[1, 2, 3], ...]), ...}
 
-                {
-                    'channel_1': np.array([
-                        [1, 2, 3],
-                        [1, 5, 3]
-                    ]),
-                    'channel_2': np.array([
-                        [2, 1, 5]
-                    ])
-                }
-
-        min_grid_size: tuple or None, optional
-            A tuple with the minimum voxel grid dimensions. If None, or if less than needed, the the minimum size to fit all the
-            points will be automatically calculated. Dimentions should be passed as absolute values
-            (meaning in the same units as the points), and not as the relative size according to the
-            voxel resolution. The dimentions shall be interpreted as minimum values, and will be rounded
-            up to the nearest multiple of the resolution.
-            For example, if a box_size of (10, 10, 10) is passed with a resolution of 0.75, the actual
-            box size will be rounded up to (10.5, 10.5, 10.5). The extra 0.5 padding will be added only to
-            the maximum sides of the axes of the reference frame, meaning no centering will be made.
-        min_grid_shape: tuple or None, optional
-            Acomplishes the same thing as min_grid_size, but directly in terms of the number of voxels.
-            If passed, it will override the min_grid_size parameter. The shape should be a 3d array with shape (x, y, z).
-        allow_negative_coords: bool, optional
-            If True, negative coordinates will be allowed, but keep in mind they will be translated to origin. If False, will raise an error if any negative
-            coordinates are found in the points parameter.
-        force_shape: np.ndarray, optional
-            If passed, the output grid will be forced to have the same shape as this parameter.
-            Overrides the min_grid_size and the min_grid_shape parameters. The shape should be a 3d array with shape (x, y, z).
-        """
-
-        #check if translation should be forced
-        if not allow_negative_coords:
-            all_coords = [point for channel in points for point in points[channel]]
-            if min([min(point) for point in all_coords]) < 0:
-                raise ValueError("Negative coordinates found. If you want to forcefully allow negative coordinates, set allow_negative_coords=True.")
-
-        else:
-            #translate the coordinates to the origin
-            all_coords = np.vstack([points[channel] for channel in points])
-            translation_vector = get_translation_vector(all_coords)
-            for channel in points:
-                points[channel] = np.array(points[channel]) + translation_vector
-
-
-        grid_shape = None
-        if force_shape is not None:
-            if not isinstance(force_shape, np.ndarray):
-                force_shape = np.array(force_shape)
-            if len(force_shape) != 3:
-                raise ValueError(f"force_shape should be a 3d tuple or list, but got {force_shape.shape}")
-            grid_shape = force_shape
-        else:
-            if min_grid_shape is None:
-                if min_grid_size is None:
-                    #calculate the minimum grid size and initialize
-                    # min_grid_size = np.array([max([max([point[i] for point in points[channel]]) for channel in points]) for i in range(3)])
-                    # all_coords = np.vstack([points[channel] for channel in points])
-                    # min_grid_size = self.get_min_grid_size(all_coords)
-                    min_grid_size = np.zeros(3) #TODO: should work, but check this
-                elif not isinstance(min_grid_size, np.ndarray):
-                    min_grid_size = np.array(min_grid_size)
-                if min_grid_size.shape != (3,):
-                    raise ValueError(f"min_grid_size should be a 3d tuple or list, but got {min_grid_size.shape}")
-
-                all_coords = np.vstack([points[channel] for channel in points])
-                needed_size = self.get_min_grid_size(all_coords)
-                grid_size = np.maximum(min_grid_size, needed_size) #get the maximum size between the two, element wise
-                grid_shape = self.get_indexes(grid_size).astype(int) + 1
-            else:
-                if not isinstance(min_grid_shape, np.ndarray):
-                    min_grid_shape = np.array(min_grid_shape)
-                if min_grid_shape.shape != (3,):
-                    raise ValueError(f"min_grid_shape should be a 3d tuple or list, but got {min_grid_shape.shape}")
-                all_coords = np.vstack([points[channel] for channel in points])
-                needed_size = self.get_min_grid_size(all_coords)
-                needed_shape = self.get_indexes(needed_size).astype(int) + 1
-                grid_shape = np.maximum(min_grid_shape, needed_shape) #get the maximum size between the two, element wise
-
-        # print(grid_shape)
-        grid = np.zeros((len(self.channels), *grid_shape), dtype=np.float32)
-        
-        #actually fill the grid
-        for c in self.channels:
-            channel_coords = points.get(c, np.empty((0)))
-            if len(channel_coords) == 0:
-                continue
+        center : tuple or np.ndarray
+            The spatial center (x, y, z) of the region to voxelize, in Angstroms.
             
-            grid[self.channels[c]] = self._calculate_voxels(grid[self.channels[c]], channel_coords)
+        side_length : float
+            The side length of the cubic region, in Angstroms. 
+            The voxel grid will extend from `center - side/2` to `center + side/2`.
+            
+        force_shape: tuple, optional
+            Force the output grid to have this specific shape (x, y, z), overriding the 
+            calculated shape from side_length/resolution.
+        """
+        center_arr = np.asarray(center)
+        if center_arr.shape != (3,):
+            raise ValueError(f"Center must be a 3-element tuple or array. Got shape {center_arr.shape}")
+
+        if force_shape is not None:
+             grid_shape = np.array(force_shape)
+             real_side_lengths = grid_shape * self.resolution
+        else: #auto adjust, using ceil, meaning side length is AT LEAST the size covered by the grid
+             dim_size = int(np.ceil(side_length / self.resolution))
+             grid_shape = np.array([dim_size, dim_size, dim_size])
+             real_side_lengths = np.array([dim_size * self.resolution] * 3)
+
+        origin = center_arr - (real_side_lengths / 2.0) #this way center is center even after the adjust
+        
+        translation_vector = -origin #translating is just easier to math
+            
+        # shape is (C, D, H, W)
+        grid = np.zeros((len(self._channels), *tuple(grid_shape)), dtype=np.float32)
+        
+        for c in self._channels:
+            coords = points.get(c)
+            if coords is None or len(coords) == 0:
+                continue
+
+            channel_coords = coords + translation_vector
+            
+            grid[self._channels[c]] = self._calculate_voxels(grid[self._channels[c]], channel_coords)
 
         return grid
     
@@ -181,7 +140,22 @@ class Voxelizer:
         
 
     def _calculate_voxels(self, channel_grid: np.ndarray, coords: np.ndarray | list):
-        """Calculate the voxels for a channel."""
+        """
+        Calculate the voxels for a channel.
+
+        Parameters
+        ----------
+        channel_grid: np.ndarray
+            The grid for the channel to be filled. It should have shape (x, y, z).
+        coords: np.ndarray or list
+            The coordinates of the points for the channel. It should have shape (#points, 3).
+        
+        Returns
+        -------
+        np.ndarray
+            The grid for the channel, with the voxels filled according to the mode.
+        """
+
         func_map = {
             "binary": self._binary,
             # "ivd": self._inverse_squared_distance,
@@ -227,31 +201,53 @@ class Voxelizer:
                     grid[i, j, k] = np.sum(1 / np.linalg.norm(coords - np.array([i + offset_to_center, j + offset_to_center, k + offset_to_center]), axis=1) ** 2)
         return grid
 
-    def _gaussian(self, shape, coords: np.ndarray, std: float=1.0, pooling="max"):
-        offset_to_center = self.resolution/2
-        coords = coords / self.resolution
+    def _gaussian(self, shape, coords: np.ndarray, std: float=1.0, pooling="prob"):
+        if pooling not in ["max", "avg", "sum", "prob"]:
+            raise ValueError(f"Invalid pooling mode: {pooling}. Available modes: ['max', 'avg', 'sum', 'prob']")
+
         scaled_std = std / self.resolution
-        x_axis = np.arange(shape[0]) + offset_to_center
-        y_axis = np.arange(shape[1]) + offset_to_center
-        z_axis = np.arange(shape[2]) + offset_to_center
-        x, y, z = np.meshgrid(x_axis, y_axis, z_axis, indexing='ij')
-
-        #stack to form a grid of coordinates
-        grid_coords = np.stack([x, y, z], axis=-1).reshape(-1, 3) #shape (nr_of_coordinates, 3)
-        grid_gauss = np.exp((-cdist(grid_coords, coords, metric='sqeuclidean')) / (2 * scaled_std ** 2)) #this was already highly optimized, even faster than using einsum
-
-
-
-        if pooling == "max":
-            grid_gauss = np.max(grid_gauss, axis=1).reshape(shape) #shape (shape[0], shape[1], shape[2])
-        elif pooling == "avg":
-            grid_gauss = np.sum(np.square(grid_gauss), axis=1).reshape(shape) #sum of the squares is the same as the weighted average of the values
-        elif pooling == "sum":
-            grid_gauss = np.sum(grid_gauss, axis=1).reshape(shape)
-        elif pooling == "prob": #apparently theres a library that does voxelization called pyuul, this is their method
-            grid_gauss = 1 - np.prod(1 - grid_gauss, axis=1).reshape(shape)
+        variance_factor = -0.5 / (scaled_std ** 2)
+        cutoff = 3.0 * scaled_std 
+        
+        coords_v = coords / self.resolution
+        
+        if pooling == "prob":
+            grid_gauss = np.ones(shape, dtype=np.float32)
         else:
-            raise ValueError(f"Invalid pooling mode: {pooling}. Available modes: ['max', 'avg', 'sum']")
+            grid_gauss = np.zeros(shape, dtype=np.float32)
+            
+        for point in coords_v:
+            min_idx = np.maximum(0, np.floor(point - cutoff).astype(int))
+            max_idx = np.minimum(shape, np.ceil(point + cutoff).astype(int) + 1)
+            
+            if np.any(min_idx >= shape) or np.any(max_idx <= 0):
+                continue
+                
+            x_centers = np.arange(min_idx[0], max_idx[0]) + 0.5
+            y_centers = np.arange(min_idx[1], max_idx[1]) + 0.5
+            z_centers = np.arange(min_idx[2], max_idx[2]) + 0.5
+            
+            dx2 = (x_centers - point[0]) ** 2
+            dy2 = (y_centers - point[1]) ** 2
+            dz2 = (z_centers - point[2]) ** 2
+            
+            dist_sq = dx2[:, None, None] + dy2[None, :, None] + dz2[None, None, :]
+            local_gauss = np.exp(dist_sq * variance_factor)
+            
+            region = np.s_[min_idx[0]:max_idx[0], min_idx[1]:max_idx[1], min_idx[2]:max_idx[2]]
+            
+            if pooling == "max":
+                grid_gauss[region] = np.maximum(grid_gauss[region], local_gauss)
+            elif pooling == "sum":
+                grid_gauss[region] += local_gauss
+            elif pooling == "avg":
+                grid_gauss[region] += local_gauss ** 2
+            elif pooling == "prob": #apparently there's a voxelization library already, called pyuul. this is their method of pooling, which is actually pretty clever
+                grid_gauss[region] *= (1.0 - local_gauss)
+
+        if pooling == "prob":
+            np.subtract(1.0, grid_gauss, out=grid_gauss)
+            
         return grid_gauss
     
     def _dry_run(self, shape, coords: np.ndarray):

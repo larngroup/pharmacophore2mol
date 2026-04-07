@@ -208,7 +208,6 @@ class CustomSDMolSupplier:
         return mol
 
 
-#maryam the data agugmentation goes here
 
 def translate_mol(mol: Chem.Mol, translation_vector: np.ndarray) -> Chem.Mol:
     """

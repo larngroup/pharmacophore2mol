@@ -5,12 +5,20 @@ Also, this checks times for both libraries.
 """
 
 import numpy as np
+import torch
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds
 from tabulate import tabulate
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import sys
+from pathlib import Path
+import random
+
 from pharmacophore2mol.data.utils import SANITIZE_DEFAULT_OPS, suppress_openbabel_warnings, suppress_rdkit_warnings
+from pharmacophore2mol.experiment_utils import load_run
+from pharmacophore2mol import BASE_DIR
+
 try:
     from openbabel import pybel
 except Exception as e:
@@ -148,26 +156,6 @@ def add_bonds_from_coords_openbabel(mol: Chem.Mol) -> Chem.Mol:
 def add_bonds_from_coords_rdkit(mol: Chem.Mol, use_hueckel: bool = False, charge: int = 0, 
                                  cov_factor: float = 1.3, allow_charged_fragments: bool = True,
                                  embed_chiral: bool = True, use_vdw: bool = False) -> Chem.Mol:
-    """
-    Use RDKit's rdDetermineBonds to infer bonds from 3D coordinates.
-    
-    This is a pure RDKit solution that doesn't require OpenBabel.
-    
-    Args:
-        mol: RDKit Mol object with 3D coordinates (a conformer)
-        use_hueckel: If True, use extended Hueckel theory for connectivity
-                     (more accurate but slower). If False, use van der Waals or
-                     connect-the-dots method (faster)
-        charge: Molecular charge (required for Hueckel method if non-zero)
-        cov_factor: Factor to multiply covalent radii (for van der Waals method)
-        allow_charged_fragments: If True, assign formal charges based on valency;
-                                 otherwise use radical electrons
-        embed_chiral: If True, embed chirality information (calls sanitizeMol)
-        use_vdw: If False, use connect-the-dots; if True, use van der Waals method
-    
-    Returns:
-        RDKit Mol object with bonds determined from coordinates
-    """
     
     with suppress_rdkit_warnings():
         
@@ -214,24 +202,110 @@ def print_atoms_in_order(mol):
     atom_list = [f"{atom.GetSymbol()}" for atom in atom_list]
     print("".join(atom_list))
 
+def add_bonds_from_coords_bonder(mol: Chem.Mol, model, device) -> Chem.Mol:
+    """Uses a PyTorch Bonder network to predict bonds from RDKit Mol coordinates."""
+    if mol.GetNumConformers() == 0:
+        return mol
+
+    num_atoms = mol.GetNumAtoms()
+    if num_atoms == 0:
+        return mol
+        
+    coords = []
+    atomic_numbers = []
+    
+    conf = mol.GetConformer()
+    for i in range(num_atoms):
+        pos = conf.GetAtomPosition(i)
+        coords.append([pos.x, pos.y, pos.z])
+        atomic_numbers.append(mol.GetAtomWithIdx(i).GetAtomicNum())
+        
+    coords_t = torch.tensor([coords], dtype=torch.float32).to(device)
+    atomic_numbers_t = torch.tensor([atomic_numbers], dtype=torch.long).to(device)
+    atom_mask_t = torch.ones((1, num_atoms), dtype=torch.bool).to(device)
+    
+    with torch.no_grad():
+        logits, _ = model(coords_t, atomic_numbers_t, atom_mask_t)
+        predictions = torch.argmax(logits, dim=-1)[0]
+        
+    new_mol = Chem.RWMol(mol)
+    # Remove existing bonds
+    bonds_to_remove = [(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()) for bond in new_mol.GetBonds()]
+    for begin, end in reversed(bonds_to_remove):
+        new_mol.RemoveBond(begin, end)
+        
+    # Standard mapping 
+    bond_type_mapping = {
+        1: Chem.BondType.SINGLE,
+        2: Chem.BondType.DOUBLE,
+        3: Chem.BondType.TRIPLE,
+        4: Chem.BondType.AROMATIC
+    }
+    
+    for i in range(num_atoms):
+        for j in range(i + 1, num_atoms): # Only check upper triangle
+            pred_order = int(predictions[i, j].item())
+            if pred_order > 0 and pred_order in bond_type_mapping:
+                new_mol.AddBond(i, j, bond_type_mapping[pred_order])
+                
+    with suppress_rdkit_warnings():
+        try:
+            Chem.SanitizeMol(new_mol, Chem.SanitizeFlags.SANITIZE_ALL & ~Chem.SanitizeFlags.SANITIZE_PROPERTIES)
+        except:
+            pass
+
+    return new_mol.GetMol()
+
 if __name__ == "__main__":
     import logging
-    
-    # Set logging level to control warning suppression
-    # Use logging.DEBUG to see all warnings (verbose mode)
-    # Use logging.INFO or logging.WARNING to suppress warnings (normal mode)
-    # logging.basicConfig(level=logging.DEBUG)  # Change to logging.DEBUG for verbose
-    # logging.basicConfig(level=logging.WARNING)  # Change to logging.DEBUG for verbose
-    
     from pharmacophore2mol.data.utils import CustomSDMolSupplier
 
+    ATOM_CAP = 80  #skip molecules with more than this many atoms to avoid OOM or long processing times
+    # Define your bonder models here
+    # "Legend Name" : Configuration
+    BONDER_MODELS = {
+        # "Bonder (sigma=0)": {
+        #     "run_dir": "runs/bonder/260405-120144_exotic-unicorn", 
+        #     "weights": None,  # filename in weights folder, or None to auto-pick best
+        #     "color": "#ffe600"  # Yellow/Orange
+        # },
+        "Bonder qm9 (sigma=0.1)": {
+            "run_dir": "runs/bonder/260405-143855_cuddly-skunk", 
+            "weights": None,
+            "color": "#ffa722"  # Orange/Red
+        },
+            "Bonder geom (sigma=0.1)": {
+            "run_dir": "runs/bonder/260406-110031_lavender-kiwi", 
+            "weights": None,
+            "color": "#ff5222"  # Orange/Red
+        },
+        # "Bonder (sigma=0.3)": {
+        #     "run_dir": "runs/bonder/260405-160329_khaki-centipede", 
+        #     "weights": None,
+        #     "color": "#cc7700"  # Deep Red
+        # },
+        # "Bonder (sigma=0.5)": {
+        #     "run_dir": "runs/bonder/260406-035639_astonishing-coua", 
+        #     "weights": None,
+        #     "color": "#cc0000ff"
+        # }
+    }
 
-
-    mol_supplier = CustomSDMolSupplier("./dump/train_5confs.sdf")
+    # mol_supplier = CustomSDMolSupplier("./dump/train_5confs.sdf")
+    # mol_supplier = CustomSDMolSupplier("./pharmacophore2mol/data/raw/qm9_test.sdf")
+    mol_supplier = CustomSDMolSupplier("./pharmacophore2mol/data/raw/geom_5confs_test.sdf")
+    # mol_supplier = CustomSDMolSupplier("./pharmacophore2mol/data/raw/zinc3d_test.sdf")
     data = []
     count = 0
-    for mol in mol_supplier:
+    rng = random.Random(42)  # For reproducibility of molecule selection
+    picking_sequence = list(range(len(mol_supplier)))
+    rng.shuffle(picking_sequence)
+    for i in picking_sequence:
+        mol = mol_supplier[i]
         if mol is not None:
+            num_atoms = mol.GetNumAtoms()
+            if num_atoms > ATOM_CAP:
+                continue
             data.append(mol)
             count += 1
         if count >= 1000:
@@ -242,83 +316,148 @@ if __name__ == "__main__":
     write_mol_to_sdf(add_coordinate_noise(data[0], 0.25), "./dump/noisy_0.25.sdf")
     write_mol_to_sdf(add_coordinate_noise(data[0], 0.5), "./dump/noisy_0.5.sdf")
 
-    # Store results for each noise level
-    results = []
-    
-    # Calculate total iterations for progress bar
-    total_iterations = len(noise_levels) * len(data)
-    
-    with tqdm(total=total_iterations, unit="mol") as pbar:
-        for noise in noise_levels:
-            # Accumulate scores for this noise level
-            ob_scores = []
-            rdkit_dots_scores = []
-            rdkit_vdw_scores = []
-            rdkit_hueckel_scores = []
-            
-            for mol in data:
-                noisy_mol = add_coordinate_noise(mol, noise)
-                noisy_mol_ob = add_bonds_from_coords_openbabel(noisy_mol)
-                
-                # Test RDKit method (default: connect-the-dots)
-                noisy_mol_rdkit_dots = add_bonds_from_coords_rdkit(noisy_mol, use_vdw=False)
-                
-                # Test RDKit method (van der Waals)
-                noisy_mol_rdkit_vdw = add_bonds_from_coords_rdkit(noisy_mol, use_vdw=True)
+    total_iters = len(noise_levels) * len(data)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-                # Test RDKit method (Hueckel)
-                noisy_mol_rdkit_hueckel = add_bonds_from_coords_rdkit(
-                    noisy_mol, use_hueckel=True, charge=Chem.GetFormalCharge(mol)
-                )
-                
-                # Calculate bond matches
-                ob_scores.append(compare_bonds(mol, noisy_mol_ob))
-                rdkit_dots_scores.append(compare_bonds(mol, noisy_mol_rdkit_dots))
-                rdkit_vdw_scores.append(compare_bonds(mol, noisy_mol_rdkit_vdw))
-                rdkit_hueckel_scores.append(compare_bonds(mol, noisy_mol_rdkit_hueckel))
-                
-                # Update progress bar
-                pbar.update(1)
+    methods = {
+        'OpenBabel': {'color': '#1f77b4', 'func': lambda m, orig: add_bonds_from_coords_openbabel(m)}, # Blue
+        'RDKit (connect-the-dots)': {'color': '#008080', 'func': lambda m, orig: add_bonds_from_coords_rdkit(m, use_vdw=False)}, # Teal
+        'RDKit (van der Waals)': {'color': '#9467bd', 'func': lambda m, orig: add_bonds_from_coords_rdkit(m, use_vdw=True)}, # Purple
+        'RDKit (Hueckel)': {'color': '#17becf', 'func': lambda m, orig: add_bonds_from_coords_rdkit(m, use_hueckel=True, charge=Chem.GetFormalCharge(orig))}, # Cyan
+    }
+
+    # Data structure to hold all scores
+    # results_data["Method Name"] = [score_for_noise_0, score_for_noise_1, ...]
+    results_data = {}
+
+    # 1. EVALUATE CLASSICAL METHODS
+    for method_name, config in methods.items():
+        print(f"\nEvaluating {method_name}...")
+        func = config['func']
+        
+        # Reset random seed per method to ensure identical noisy coordinates
+        np.random.seed(42)
+        
+        scores_per_noise = []
+        with tqdm(total=total_iters, desc=method_name, unit="mol") as pbar:
+            for noise in noise_levels:
+                noise_scores = []
+                for orig_mol in data:
+                    noisy_mol = add_coordinate_noise(orig_mol, noise)
+                    inferred_mol = func(noisy_mol, orig_mol)
+
+                    score = compare_bonds(orig_mol, inferred_mol)
+                    noise_scores.append(score)
+                    pbar.update(1)
+                scores_per_noise.append(np.mean(noise_scores))
                 pbar.set_postfix({"Noise": f"{noise:.2f} Å"})
+        
+        results_data[method_name] = scores_per_noise
+
+    # 2. EVALUATE BONDER MODELS
+    for model_name, cfg in BONDER_MODELS.items():
+        print(f"\nEvaluating Bonder Model: {model_name}...")
+        
+        run_dir_path = Path(BASE_DIR) / cfg["run_dir"]
+        weights_name = cfg.get("weights")
+        
+        train_module = None
+        
+        # Load the run context safely
+        try:
+            with load_run(run_dir_path) as loaded_code:
+                train_module = loaded_code.import_module("pharmacophore2mol.models.bonder.train")
+                run_config = getattr(train_module, "CONFIG", None)
+                DenseBondPredictor = train_module.DenseBondPredictor
+                if weights_name is None:
+                    weights_path = loaded_code.get_best_weights()
+                else:
+                    weights_path = loaded_code.weights_dir / weights_name
+        except Exception:
+            pass
+
+        if train_module is None:
+            # Fallback to the current live code if the snapshot failed to save the 'bonder' folder
+            from pharmacophore2mol.models.bonder.train import CONFIG as run_config, DenseBondPredictor
+            from pharmacophore2mol.experiment_utils import load_run
             
-            # Calculate averages for this noise level
-            results.append([
-                f"{noise:.2f}",
-                f"{np.mean(ob_scores):.4f}",
-                f"{np.mean(rdkit_dots_scores):.4f}",
-                f"{np.mean(rdkit_vdw_scores):.4f}",
-                f"{np.mean(rdkit_hueckel_scores):.4f}"
-            ])
+            # Since importing from the snapshot failed, we extract weights using load_run directly
+            loader = load_run(run_dir_path)
+            if weights_name is None:
+                weights_path = loader.get_best_weights()
+            else:
+                weights_path = loader.weights_dir / weights_name
+            
+        # Setup kwargs dynamically using the config
+        model_kwargs = {
+            "num_atom_types": run_config["max_atomic_number"] + 1,
+            "atom_embedding_dim": run_config["atom_embedding_dim"],
+            "hidden_dim": run_config["hidden_dim"],
+            "num_layers": run_config["num_layers"],
+            "cutoff": run_config["distance_cutoff"],
+            "min_distance": run_config.get("min_distance", 0.1),
+            "num_classes": 5
+        }
+        
+        # Init model
+        model = DenseBondPredictor(**model_kwargs)
+        
+        model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=True))
+        model.to(device)
+        model.eval()
+        
+        # Reset random seed per method to ensure identical noisy coordinates
+        np.random.seed(42)
+        
+        scores_per_noise = []
+        with tqdm(total=total_iters, desc=model_name, unit="mol") as pbar:
+            for noise in noise_levels:
+                noise_scores = []
+                for orig_mol in data:
+                    noisy_mol = add_coordinate_noise(orig_mol, noise)
+                    inferred_mol = add_bonds_from_coords_bonder(noisy_mol, model, device)
+                    score = compare_bonds(orig_mol, inferred_mol)
+                    noise_scores.append(score)
+                    pbar.update(1)
+                scores_per_noise.append(np.mean(noise_scores))
+                pbar.set_postfix({"Noise": f"{noise:.2f} Å"})
+        
+        results_data[model_name] = scores_per_noise
+
+    # 3. PRINT RESULTS TABLE
+    headers = ["Noise (Å)"] + list(methods.keys()) + list(BONDER_MODELS.keys())
     
-    # Print results table
-    headers = ["Noise (Å)", "OpenBabel", "RDKit (dots)", "RDKit (vdW)", "RDKit (Hueckel)"]
+    table_rows = []
+    for i, noise in enumerate(noise_levels):
+        row = [f"{noise:.2f}"]
+        for name in headers[1:]:
+            row.append(f"{results_data[name][i]:.4f}")
+        table_rows.append(row)
+        
     print("\n" + "="*80)
-    print("Bond Perception Accuracy vs Coordinate Noise")
+    print(f"Bond Perception Accuracy vs Coordinate Noise (Capped at {ATOM_CAP} atoms)")
     print("="*80)
-    print(tabulate(results, headers=headers, tablefmt="grid"))
+    print(tabulate(table_rows, headers=headers, tablefmt="grid"))
     print("="*80)
     
-    # Create matplotlib plot
-    # Extract data from results
-    noise_values = [float(row[0]) for row in results]
-    ob_values = [float(row[1]) for row in results]
-    rdkit_dots_values = [float(row[2]) for row in results]
-    rdkit_vdw_values = [float(row[3]) for row in results]
-    rdkit_hueckel_values = [float(row[4]) for row in results]
-    
-    # Create the plot
+    # 4. PLOT RESULTS
     plt.figure(figsize=(12, 7))
-    plt.plot(noise_values, ob_values, linewidth=2, markersize=8, label='OpenBabel', color='#2E86AB')
-    plt.plot(noise_values, rdkit_dots_values, linewidth=2, markersize=8, label='RDKit (connect-the-dots)', color='#A23B72')
-    plt.plot(noise_values, rdkit_vdw_values, linewidth=2, markersize=8, label='RDKit (van der Waals)', color='#F18F01')
-    plt.plot(noise_values, rdkit_hueckel_values, linewidth=2, markersize=8, label='RDKit (Hueckel)', color='#C73E1D')
+    
+    # Plot classical
+    for method_name, config in methods.items():
+        plt.plot(noise_levels, results_data[method_name], linewidth=2, markersize=8, label=method_name, color=config['color'])
+        
+    # Plot NN models
+    for model_name, cfg in BONDER_MODELS.items():
+        color = cfg.get("color", "#33a02c")
+        plt.plot(noise_levels, results_data[model_name], linewidth=2, markersize=8, label=model_name, color=color)
     
     plt.xlabel('Coordinate Noise (Å)', fontsize=12, fontweight='bold')
     plt.ylabel('Bond Matching Accuracy', fontsize=12, fontweight='bold')
     plt.title('Bond Perception Methods: Accuracy vs Coordinate Noise', fontsize=14, fontweight='bold', pad=20)
     plt.legend(loc='best', fontsize=11, framealpha=0.9)
     plt.grid(True, alpha=0.3, linestyle='--')
-    plt.xlim(noise_values[0], noise_values[-1])
+    plt.xlim(noise_levels[0], noise_levels[-1])
     plt.ylim(-0.05, 1.05)
     
     # Add horizontal line at perfect accuracy

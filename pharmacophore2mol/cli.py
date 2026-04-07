@@ -89,3 +89,48 @@ def clean(input_path, output_path, keep_disconnected, keep_unstable):
     )
 
     logger.info(f"Cleaning complete: {num_valid} valid molecules saved")
+
+
+@cli.command(name="tb")
+@click.argument('logdir', required=False, default=None)
+def tensorboard_cmd(logdir):
+    """
+    Launch TensorBoard.
+    
+    If LOGDIR is provided, it first checks if it's a subfolder in the `runs` directory.
+    If not found there, it treats the input as a direct filesystem path.
+    If LOGDIR is omitted, it defaults to the `runs` directory.
+    
+    Examples:
+    
+        p2m tb                # Opens runs/
+        p2m tb bonder         # Opens runs/bonder/
+        p2m tb ./custom_runs  # Opens ./custom_runs/
+    """
+    import sys
+    import subprocess
+    from pathlib import Path
+    from pharmacophore2mol import BASE_DIR
+    
+    runs_dir = BASE_DIR / "runs"
+    
+    if not logdir:
+        target_dir = runs_dir
+    else:
+        run_subfolder = runs_dir / logdir
+        if run_subfolder.is_dir(): #found in runs/
+            target_dir = run_subfolder
+        else: #must be a direct path
+            target_path = Path(logdir)
+            if target_path.is_dir():
+                target_dir = target_path
+            else:
+                click.echo(f"Error: Could not find log directory for '{logdir}'", err=True)
+                sys.exit(1)
+
+    click.echo(f"Starting TensorBoard with logdir: {target_dir}")
+    try:
+        # sys.executable ensures we use the same python environment
+        subprocess.run([sys.executable, "-m", "tensorboard.main", "--logdir", str(target_dir)])
+    except KeyboardInterrupt:
+        click.echo("\nTensorBoard stopped.")

@@ -14,7 +14,20 @@ authors = [
 ]
 
 dependencies = [
-    # e.g. "rdkit", "click", "numpy"
+    "torch",
+    "torchvision",
+    "rdkit",
+    "tqdm",
+    "matplotlib",
+    "numpy",
+    "scipy",
+    "diffusers[training]",
+    "tensorboard",
+    "numerize",
+    "huggingface-hub",
+    "coolname",
+    "tabulate",
+    "hf_xet"
 ]
 
 [project.scripts]

@@ -6,6 +6,9 @@
 #viztracer
 result.json
 
+#experiment logs
+runs/
+
 #pip-tools and pipreqs
 requirements.in
 update_requirements.txt

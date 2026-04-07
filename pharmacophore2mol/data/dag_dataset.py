@@ -106,7 +106,7 @@ class Node(Dataset, metaclass=NodeMeta):
     parents : Node | list[Node] | dict[str, Node] | None
         Upstream node or nodes supplying data for this node. Accepts a single Node, a list of Nodes
         (ordered inputs), or a dict mapping names to Nodes (named inputs). Use None for root/source
-        nodes that produce data without upstream dependencies.
+        nodes that produce data without upstream dependencies (default).
     salt : None | int | Node, optional
         Controls randomness and reproducibility:
           - None (default): Independent per-node randomness derived from the sample index plus a
@@ -154,12 +154,39 @@ class Node(Dataset, metaclass=NodeMeta):
         self._pass_index = has_kwargs or 'index' in params
         self._forward_sig = sig # cache signature for validation
 
-        self._configure_parents(parents, is_finite_override=is_finite)
+        self._is_finite_explicit = is_finite
+        self.configure_parents(parents)
 
         self.setup(**setup_kwargs) #user init hook
         self._is_initialized = True
 
-    def _configure_parents(self, parents, is_finite_override=_UNSET):
+    @property
+    def is_finite(self):
+        """
+        Dynamically infers whether the node represents a finite dataset.
+        """
+        if getattr(self, '_is_finite_explicit', _UNSET) is not _UNSET:
+            return self._is_finite_explicit
+            
+        if self._pass_index:
+            return True
+            
+        if not getattr(self, 'parents', None):
+            base_len = Node.__len__
+            user_len = self.__class__.__len__
+            return user_len is not base_len
+            
+        parents_iterable = []
+        if isinstance(self.parents, list):
+            parents_iterable = self.parents
+        elif isinstance(self.parents, dict):
+            parents_iterable = self.parents.values()
+        elif isinstance(self.parents, (Node, Dataset)):
+            parents_iterable = [self.parents]
+        
+        return any(getattr(p, 'is_finite', True) for p in parents_iterable)
+
+    def configure_parents(self, parents, is_finite_override=_UNSET):
         """
         Validates parents, calculates length/finiteness.
         Used by __init__ and clone().
@@ -189,29 +216,7 @@ class Node(Dataset, metaclass=NodeMeta):
         self.parents = parents if parents is not None else []
 
         if is_finite_override is not _UNSET:
-            self.is_finite = is_finite_override
-
-        if self.is_finite is _UNSET: #auto mode
-            if self._pass_index:
-                self.is_finite = True #if the node needs the index, it should be finite, unless forced otherwise
-            else:
-                if not self.parents:
-                    #source node with no index. default to infinite unless user implemented __len__
-                    #if they did, it's a strong signal they want it to be finite (like a fixed size random source, capped generator, etc)
-                    base_len = Node.__len__
-                    user_len = self.__class__.__len__
-                    self.is_finite = (user_len is not base_len)
-                else:
-                    # if any parent is finite, this node is finite too, unless forced otherwise
-                    parents_iterable = []
-                    if isinstance(self.parents, list):
-                        parents_iterable = self.parents
-                    elif isinstance(self.parents, dict):
-                        parents_iterable = self.parents.values()
-                    elif isinstance(self.parents, (Node, Dataset)):
-                        parents_iterable = [self.parents]
-                    
-                    self.is_finite = any(getattr(p, 'is_finite', True) for p in parents_iterable)
+            self._is_finite_explicit = is_finite_override
 
         self._validate_forward_signature(self._forward_sig)
 
@@ -293,9 +298,9 @@ class Node(Dataset, metaclass=NodeMeta):
         # but if finiteness WAS explicit (is_finite arg), we pass it to configure
         finite_arg = is_finite
         if new_parents is not None and is_finite is _UNSET:
-            new_node.is_finite = _UNSET
+            new_node._is_finite_explicit = _UNSET
             
-        new_node._configure_parents(parents_to_use, is_finite_override=finite_arg)
+        new_node.configure_parents(parents_to_use, is_finite_override=finite_arg)
             
         return new_node
 
@@ -409,7 +414,8 @@ class Node(Dataset, metaclass=NodeMeta):
         try:
             ret = self._get(context_cache)
             if ret is None:
-                return _FailedSample(index, error="None received, likely due to filtering")
+                origin = context_cache.get('none_origin', 'Unknown Node')
+                return _FailedSample(index, error=f"None received from node '{origin}', likely due to filtering")
             
         except Exception as e:
             if self._continue_on_error:
@@ -559,6 +565,9 @@ class Node(Dataset, metaclass=NodeMeta):
         else:
             #standard Dataset (stop recursion, just grab data)
             result = parent[index]
+            if result is None and 'none_origin' not in context:
+                name_str = f" '{parent.name}'" if hasattr(parent, 'name') else ""
+                context['none_origin'] = f"{parent.__class__.__name__}{name_str} (ID: {id(parent)})"
 
         context[cache_key] = result  #write to cache
         return result
@@ -602,17 +611,6 @@ class Node(Dataset, metaclass=NodeMeta):
                  if self.copy_inputs:
                     parent_input = smart_copy(parent_input)
                  f_kwargs[k] = parent_input
-            
-        # named parents (dict)
-        elif isinstance(self.parents, dict):
-            # unpack with ** so forward receives (idx, a=1, b=2...)
-            for k, v in self.parents.items():
-                 parent_input = self._resolve_parent(v, context)
-                 if parent_input is None:
-                    return None  # propagate None if any parent returns None
-                 if self.copy_inputs:
-                    parent_input = smart_copy(parent_input)
-                 f_kwargs[k] = parent_input
         # single parent (linear chain)
         elif isinstance(self.parents, (Node, Dataset)):
             # direct pass-through
@@ -626,12 +624,17 @@ class Node(Dataset, metaclass=NodeMeta):
         try:
             result = self.forward(*f_args, **f_kwargs, **kwargs)
         except Exception as e:
-            context_info_msg = f"Error in Node '{self.__class__.__name__}' (Salt/ID: {self._salt}) at index {index}.\n"
+            name_str = f" '{self.name}'" if hasattr(self, 'name') else ""
+            context_info_msg = f"Error in Node '{self.__class__.__name__}'{name_str} (Salt/ID: {self._salt}) at index {index}.\n"
             if len(e.args) > 0:
                 e.args = (context_info_msg + "\n" + str(e.args[0]),) + e.args[1:]
             else:
                 e.args = (context_info_msg,)
             raise e
+
+        if result is None and 'none_origin' not in context:
+            name_str = f" '{self.name}'" if hasattr(self, 'name') else ""
+            context['none_origin'] = f"{self.__class__.__name__}{name_str} (Salt/ID: {self._salt})"
 
         return result
     
