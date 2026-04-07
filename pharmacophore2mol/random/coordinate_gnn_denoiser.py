@@ -38,7 +38,7 @@ class NoisyAtomPositionsDataset(torch.utils.data.Dataset):
     def __init__(self, mols_filepath, noise_level=0.1, transforms=None, force_len=None):
         self.noise_level = noise_level
         self.mols_filepath = mols_filepath
-        self.mol_supplier = Chem.SDMolSupplier(self.mols_filepath, removeHs=False, sanitize=True, strictParsing=False)
+        self.mol_supplier = Chem.SDMolSupplier(str(self.mols_filepath), removeHs=False, sanitize=True, strictParsing=False)
         self.transforms = transforms if transforms is not None else []
         self.force_len = force_len
 

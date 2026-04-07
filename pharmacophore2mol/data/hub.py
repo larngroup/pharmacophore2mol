@@ -3,7 +3,7 @@ from pathlib import Path
 from huggingface_hub import hf_hub_download
 import pharmacophore2mol as p2m
 
-def download_if_missing(filename: str, repo_id: str = None) -> Path:
+def get_dataset(filename: str, repo_id: str = None) -> Path:
     """
     Ensures a single file is available locally in the data/raw directory, 
     downloading it from the Hugging Face Hub if it is missing.
@@ -25,3 +25,24 @@ def download_if_missing(filename: str, repo_id: str = None) -> Path:
         raise FileNotFoundError(f"Failed to download {filename} from Hugging Face Hub.")
     
     return Path(actual_path)
+
+
+def ensure_dataset_file(filepath, repo_id: str = None) -> Path:
+    """
+    Resolve a dataset file path. If the file is missing and points to the
+    data/raw folder, download it from the Hugging Face Hub.
+    """
+    path = Path(filepath)
+    if path.exists():
+        return path
+
+    is_raw_path = (
+        path.parent == p2m.RAW_DATA_DIR
+        or path.parent.name == "raw"
+        or ("data" in path.parts and "raw" in path.parts)
+    )
+
+    if is_raw_path and path.suffix == ".sdf":
+        return get_dataset(path.name, repo_id=repo_id)
+
+    return path

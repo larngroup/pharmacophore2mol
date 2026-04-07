@@ -171,7 +171,7 @@ class CustomSDMolSupplier:
         # Create the underlying supplier (always with sanitize=False)
         # We'll handle sanitization ourselves for full control
         self._supplier = Chem.SDMolSupplier(
-            filepath,
+            str(filepath),
             removeHs=remove_hs,
             sanitize=False,
             strictParsing=strict_parsing

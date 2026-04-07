@@ -3,13 +3,14 @@ import numpy as np
 from pharmacophore2mol.models.unet3d.dataset import SubGridsDataset
 from pharmacophore2mol.models.unet3d.utils import save_preds_as_gif
 from pharmacophore2mol.data.utils import RandomRotateMolTransform, RandomFlipMolTransform
+from pharmacophore2mol.data.hub import get_dataset
 
 
 if __name__ == "__main__":
     import os
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
-    dataset = SubGridsDataset(mols_filepath="../data/raw/original_phenol.sdf")
+    dataset = SubGridsDataset(mols_filepath=get_dataset("original_phenol.sdf"))
     transforms = [RandomFlipMolTransform(), RandomRotateMolTransform((0, 0, 360))] 
     dataset_t = SubGridsDataset(mols_filepath="../data/raw/original_phenol.sdf", transforms=transforms)
 

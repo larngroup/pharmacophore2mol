@@ -5,6 +5,7 @@ import os
 import torch
 from datetime import datetime
 from pharmacophore2mol.models.unet3d_v2.dataset import NoisySubGridsDataset
+from pharmacophore2mol.data.hub import get_dataset
 
 if __name__ == "__main__":
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
@@ -12,7 +13,7 @@ if __name__ == "__main__":
 
 
     dataset = NoisySubGridsDataset(
-        mols_filepath="../data/raw/2_pyridone.sdf",
+        mols_filepath=get_dataset("2_pyridone.sdf"),
         force_len=1000,
         transforms=[],
         return_clean=True

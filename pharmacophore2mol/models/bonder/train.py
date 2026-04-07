@@ -7,6 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from pharmacophore2mol.data.dag_dataset import ReplacerCollate
+from pharmacophore2mol.data.hub import get_dataset
 from pharmacophore2mol.experiment_utils import save_run
 from pharmacophore2mol.models.bonder import (
     BonderDataset,
@@ -129,13 +130,13 @@ def main(config):
         writer = SummaryWriter(log_dir=run.run_dir / "tensorboard")
 
         train_dataset = BonderDataset(
-            sdf_filepath=config["train_sdf"],
+            sdf_filepath=get_dataset(config["train_sdf"]),
             allowed_elements=config["allowed_elements"],
             jitter_sigma=config["noise_sigma"],
             max_atoms=60,
         )
         val_dataset = BonderDataset(
-            sdf_filepath=config["val_sdf"],
+            sdf_filepath=get_dataset(config["val_sdf"]),
             allowed_elements=config["allowed_elements"],
             jitter_sigma=0.0,
             max_atoms=60,
@@ -211,8 +212,8 @@ def main(config):
 
 
 CONFIG = {
-    "train_sdf": "pharmacophore2mol/data/raw/geom_5confs_train.sdf",
-    "val_sdf": "pharmacophore2mol/data/raw/geom_5confs_test.sdf",
+    "train_sdf": "geom_5confs_train.sdf",
+    "val_sdf": "geom_5confs_test.sdf",
     # "allowed_elements": ["C", "H", "O", "N"],
     "allowed_elements": ['Si', 'H', 'B', 'C', 'Br', 'Bi', 'Cl', 'F', 'N', 'O', 'S', 'P', 'I'],
     "noise_sigma": 0.1,

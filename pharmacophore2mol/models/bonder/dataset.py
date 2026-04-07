@@ -116,11 +116,10 @@ if __name__ == "__main__":
     import pharmacophore2mol as p2m
     from torch.utils.data import DataLoader
     from tqdm import tqdm
-    from pharmacophore2mol.data.hub import download_if_missing
+    from pharmacophore2mol.data.hub import get_dataset
     
-    FILENAME = "geom_5confs_train.sdf"
     
-    TEST_SDF_PATH = download_if_missing(filename=FILENAME)
+    TEST_SDF_PATH = get_dataset(filename="geom_5confs_train.sdf")
 
     dataset = BonderDataset(
         sdf_filepath=TEST_SDF_PATH,

@@ -5,6 +5,7 @@ import torch
 from pharmacophore2mol.models.unet3d_v2.model import UNet3DV2
 from pharmacophore2mol.models.unet3d_v2.dataset import NoisySubGridsDataset
 from pharmacophore2mol.data.utils import RandomRotateMolTransform, RandomFlipMolTransform
+from pharmacophore2mol.data.hub import get_dataset
 import os
 from torch.utils.tensorboard import SummaryWriter
 
@@ -68,8 +69,18 @@ if __name__ == "__main__":
     #logging and viz
     writer = SummaryWriter(log_dir=f"runs/exp_at_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     # Define the dataset and dataloader
-    train_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=10000, transforms=[], return_clean=True)
-    val_dataset = NoisySubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=100, transforms=[], return_clean=True)
+    train_dataset = NoisySubGridsDataset(
+        mols_filepath=get_dataset("original_phenol.sdf"),
+        force_len=10000,
+        transforms=[],
+        return_clean=True,
+    )
+    val_dataset = NoisySubGridsDataset(
+        mols_filepath=get_dataset("original_phenol.sdf"),
+        force_len=100,
+        transforms=[],
+        return_clean=True,
+    )
     example_batch = [train_dataset[i] for i in random.sample(range(len(train_dataset)), 16)]
     #plot example_batch distribution
     writer.add_histogram("example_batch/clean_mol_frag", torch.stack([x[0] for x in example_batch]), bins=1000, global_step=0)

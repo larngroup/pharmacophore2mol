@@ -3,6 +3,7 @@ from pharmacophore2mol.data.nodes import SDFLoader, FilterElements, RandomFlip, 
 from dataclasses import dataclass
 from pharmacophore2mol import RAW_DATA_DIR, DATA_DIR
 import torch
+from pharmacophore2mol.data.hub import get_dataset
 
 from pharmacophore2mol.data.pharmacophore import PHARMACOPHORE_CHANNELS
 
@@ -65,7 +66,7 @@ class ConditionalDataset(Node):
 
 if __name__ == "__main__":
     dataset = ConditionalDataset(
-        sdf_filepath=RAW_DATA_DIR / "zinc3d_test.sdf",
+        sdf_filepath=get_dataset("zinc3d_test.sdf"),
         side_length=8.0,
         resolution=0.25
     )

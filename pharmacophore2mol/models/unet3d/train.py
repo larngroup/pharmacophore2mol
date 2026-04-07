@@ -8,6 +8,7 @@ from pharmacophore2mol.models.unet3d.model import UNet3d
 from pharmacophore2mol.models.unet3d.config import config
 from pharmacophore2mol.models.unet3d.utils import save_preds_as_gif
 from pharmacophore2mol.data.utils import RandomRotateMolTransform, RandomFlipMolTransform
+from pharmacophore2mol.data.hub import get_dataset
 
 
 if __name__ == "__main__":
@@ -15,8 +16,16 @@ if __name__ == "__main__":
     os.chdir(os.path.join(os.path.dirname(__file__), "."))
 
     # Define the dataset and dataloader
-    train_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 100, transforms=[RandomRotateMolTransform(), RandomFlipMolTransform()])
-    val_dataset = SubGridsDataset(mols_filepath="../../data/raw/original_phenol.sdf", force_len=config["batch_size"] * 5, transforms=[RandomRotateMolTransform(), RandomFlipMolTransform()])
+    train_dataset = SubGridsDataset(
+        mols_filepath=get_dataset("original_phenol.sdf"),
+        force_len=config["batch_size"] * 100,
+        transforms=[RandomRotateMolTransform(), RandomFlipMolTransform()],
+    )
+    val_dataset = SubGridsDataset(
+        mols_filepath=get_dataset("original_phenol.sdf"),
+        force_len=config["batch_size"] * 5,
+        transforms=[RandomRotateMolTransform(), RandomFlipMolTransform()],
+    )
     ex_x, ex_y = train_dataset[0]
     
     # dataset = SubGridsDataset(mols_filepath="../../data/raw/zinc3d_test.sdf")
