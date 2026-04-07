@@ -150,7 +150,7 @@ if __name__ == "__main__":
         batch_size=min(8, len(dataset)),
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=0,
+        num_workers=8,
     )
 
     for batch in tqdm(loader, desc="Iterating over batches"):
