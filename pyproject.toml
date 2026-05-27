@@ -28,7 +28,7 @@ dependencies = [
     "coolname",
     "tabulate",
     "hf_xet",
-    "openbabel-wheel",
+    "openbabel>=3.2.0",
 ]
 
 [project.scripts]
